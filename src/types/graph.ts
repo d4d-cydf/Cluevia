@@ -1,3 +1,6 @@
+import type { RelationClaim, ClaimReview } from './claims';
+import type { AnalysisBrief } from './clarification';
+
 export interface GraphSource {
   id: string;
   title: string;
@@ -6,6 +9,7 @@ export interface GraphSource {
   publishedAt?: string;
   accessedAt?: string;
   excerpt?: string;
+  contentHash?: string; sourceFamily?: string;
 }
 
 export interface GraphGroup { id: string; label: string; color: string }
@@ -27,6 +31,7 @@ export interface GraphEdge {
   status: 'reported' | 'inferred';
   sourceIds: string[];
   highlighted?: boolean;
+  claim?: RelationClaim; review?: ClaimReview;
 }
 export interface GraphEvent {
   id: string;
@@ -42,11 +47,13 @@ export interface GraphFinding { text: string; sourceIds: string[]; nodeIds: stri
 /** Shared data contract: imported files, AIP responses, and examples use this shape. */
 export interface GraphDocument {
   schemaVersion: '1.0';
+  ontologyId?: string;
+  ontologyVersion?: number;
   id: string;
   title: string;
   question: string;
   summary: string;
-  origin: 'published-source' | 'imported' | 'aip' | 'demo';
+  origin: 'published-source' | 'imported' | 'aip' | 'codex' | 'jev' | 'structured' | 'demo';
   createdAt: string;
   limitations: string[];
   groups: GraphGroup[];
@@ -58,5 +65,5 @@ export interface GraphDocument {
 }
 
 export type GraphSelection = { kind: 'node' | 'edge' | 'event'; id: string } | null;
-export interface EvidenceDocument { id: string; name: string; text: string; url?: string }
-export interface GraphGenerationInput { question: string; documents: EvidenceDocument[] }
+export interface EvidenceDocument { id: string; name: string; text: string; url?: string; /** Trusted server-assigned scope linking chunks from one original file. */ identityScope?: string; sourceOffset?: number }
+export interface GraphGenerationInput { question: string; documents: EvidenceDocument[]; uploadIds?: string[]; analysisBrief?: AnalysisBrief }

@@ -1,5 +1,7 @@
+import { exploreGraph } from '../../lib/graph-exploration';
+import { stanceLabels } from '../../lib/claim';
 import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties, KeyboardEvent } from 'react';
+import type { CSSProperties, KeyboardEvent, PointerEvent } from 'react';
 import type { GraphDocument, GraphEdge, GraphEvent, GraphNode, GraphSelection } from '../../types/graph';
 import { Icon } from '../Icon';
 import './graph-renderer.css';
@@ -35,6 +37,20 @@ const clamp = (value: number, min: number, max: number) => Math.min(max, Math.ma
 
 /** A stable layout is computed from the graph itself, without case-specific IDs. */
 function boardLayout(graph: GraphDocument): SceneLayout {
+  // Case projections can contain thousands of objects. Avoid the per-extraction O(n²)
+  // force simulation; retain every object in a deterministic, searchable type grid.
+  if (graph.nodes.length > 200) {
+    const columns = Math.max(4, Math.ceil(Math.sqrt(graph.nodes.length)));
+    const positions = new Map<string, Point>();
+    const grouped = new Map<string, GraphNode[]>();
+    for (const node of graph.nodes) { const items = grouped.get(node.group) ?? []; items.push(node); grouped.set(node.group, items); }
+    let row = 0;
+    for (const items of grouped.values()) {
+      items.forEach((node, index) => positions.set(node.id, { x: 160 + (index % columns) * 250, y: 120 + (row + Math.floor(index / columns)) * 135 }));
+      row += Math.ceil(items.length / columns) + 1;
+    }
+    return { width: Math.max(900, columns * 250 + 70), height: Math.max(580, row * 135 + 100), positions };
+  }
   const columns = Math.max(3, Math.ceil(Math.sqrt(graph.nodes.length * 1.4)));
   const width = Math.max(940, columns * 240 + 80);
   const height = Math.max(580, Math.ceil(graph.nodes.length / columns) * 160 + 100);
@@ -190,12 +206,73 @@ function activateEdge(event: KeyboardEvent<SVGGElement>, callback: () => void) {
 
 function nodeText(node: GraphNode) { return `${node.label} ${node.type} ${node.description} ${Object.values(node.properties).join(' ')}`.toLocaleLowerCase(); }
 
-export default function GraphRenderer({ graph, view, selection, onSelect, showPath, query }: GraphRendererProps) {
+function GraphCanvas({ graph, view, selection, onSelect, showPath, query }: GraphRendererProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
+  const [scroll, setScroll] = useState({ left: 0, top: 0 });
+  const nodeById = useMemo(() => new Map(graph.nodes.map(node => [node.id, node])), [graph.nodes]);
   const [zoom, setZoom] = useState(1);
   const [viewport, setViewport] = useState({ width: 900, height: 580 });
   const markerId = useId().replace(/:/g, '');
-  const scene = useMemo(() => view === 'lanes' ? lanesLayout(graph) : boardLayout(graph), [graph, view]);
+  const priorScene = useRef<{ id: string; view: string; scene: SceneLayout } | null>(null);
+  const baseScene = useMemo(() => {
+    const candidate = view === 'lanes' ? lanesLayout(graph) : boardLayout(graph);
+    const prior = priorScene.current;
+    if (view === 'board' && prior?.id === graph.id && prior.view === view && [...prior.scene.positions.keys()].every(id => candidate.positions.has(id))) {
+      const occupied = [...prior.scene.positions.values()];
+      for (const [id, point] of candidate.positions) {
+        const saved = prior.scene.positions.get(id);
+        if (saved) candidate.positions.set(id, saved);
+        else {
+          let next = point; let slot = 0;
+          while (occupied.some(other => Math.abs(other.x - next.x) < 210 && Math.abs(other.y - next.y) < 105)) { next = { x: 140 + (slot % 5) * 230, y: 100 + Math.floor(slot / 5) * 125 }; slot++; }
+          candidate.positions.set(id, next); occupied.push(next);
+        }
+      }
+      for (const point of candidate.positions.values()) { candidate.width = Math.max(candidate.width, point.x + 140); candidate.height = Math.max(candidate.height, point.y + 90); }
+    }
+    priorScene.current = { id: graph.id, view, scene: candidate }; return candidate;
+  }, [graph, view]);
+  const positionKey = `cluevia.positions.${graph.id}.${view}`;
+  const [manual, setManual] = useState<Record<string, Point>>({});
+  const dragging = useRef<{ id: string; pointer: number; x: number; y: number; point: Point; moved: boolean; scrollX: number; scrollY: number } | null>(null);
+  const suppressClick = useRef(false);
+  useEffect(() => {
+    try {
+      const saved: unknown = JSON.parse(localStorage.getItem(positionKey) ?? '{}');
+      const entries = saved && typeof saved === 'object' && !Array.isArray(saved) ? Object.entries(saved).filter((entry): entry is [string, Point] => {
+        const value = entry[1]; return value && typeof value === 'object' && Number.isFinite(value.x) && Number.isFinite(value.y) && value.x >= 100 && value.y >= 60 && value.x <= 1e6 && value.y <= 1e6;
+      }) : [];
+      setManual(Object.fromEntries(entries));
+    } catch { setManual({}); }
+  }, [positionKey]);
+  const scene = useMemo(() => {
+    const positions = new Map(baseScene.positions); let width = baseScene.width; let height = baseScene.height;
+    for (const [id, point] of Object.entries(manual)) if (positions.has(id)) { positions.set(id, point); width = Math.max(width, point.x + 130); height = Math.max(height, point.y + 90); }
+    return { width, height, positions };
+  }, [baseScene, manual]);
+  function startDrag(event: PointerEvent<HTMLButtonElement>, id: string) {
+    if (event.button !== 0) return;
+    const point = scene.positions.get(id); if (!point) return;
+    suppressClick.current = false;
+    dragging.current = { id, pointer: event.pointerId, x: event.clientX, y: event.clientY, point, moved: false, scrollX: viewportRef.current?.scrollLeft ?? 0, scrollY: viewportRef.current?.scrollTop ?? 0 };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    event.currentTarget.focus({ preventScroll: true });
+    onSelect({ kind: 'node', id });
+  }
+  function moveDrag(event: PointerEvent<HTMLButtonElement>) {
+    const drag = dragging.current; if (!drag || drag.pointer !== event.pointerId) return;
+    const dx = event.clientX - drag.x; const dy = event.clientY - drag.y;
+    if (!drag.moved && Math.hypot(dx, dy) < 3) return;
+    drag.moved = true; suppressClick.current = true;
+    const point = { x: clamp(drag.point.x + (dx + (viewportRef.current?.scrollLeft ?? 0) - drag.scrollX) / zoom, 100, 1e6), y: clamp(drag.point.y + (dy + (viewportRef.current?.scrollTop ?? 0) - drag.scrollY) / zoom, 60, 1e6) };
+    setManual(previous => ({ ...previous, [drag.id]: point }));
+  }
+  function endDrag(event: PointerEvent<HTMLButtonElement>) {
+    if (dragging.current?.pointer !== event.pointerId) return;
+    dragging.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    setManual(previous => { try { localStorage.setItem(positionKey, JSON.stringify(previous)); } catch { /* Layout remains usable without browser persistence. */ } return previous; });
+  }
   const timeline = useMemo(() => timelineLayout(graph), [graph]);
   const dimensions = view === 'timeline' ? timeline : scene;
   const groups = useMemo(() => new Map(graph.groups.map(group => [group.id, group])), [graph.groups]);
@@ -233,12 +310,12 @@ export default function GraphRenderer({ graph, view, selection, onSelect, showPa
     if (!element) return;
     setZoom(clamp((element.clientWidth - 32) / dimensions.width, 0.65, 1));
     element.scrollTo({ top: 0, left: 0 });
-  }, [graph, view, dimensions.width]);
+  }, [graph.id, view]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
       const element = viewportRef.current;
-      if (!element || !selection) return;
+      if (!element || !selection || dragging.current) return;
       const selectedEvent = selection.kind === 'event' ? selection.id : graph.events.find(event => event.nodeIds.some(id => selectedNodeIds.has(id)))?.id;
       const target = Array.from(element.querySelectorAll<HTMLElement>('[data-graph-node], [data-graph-event]')).find(item => view === 'timeline'
         ? item.dataset.graphEvent === selectedEvent
@@ -295,7 +372,7 @@ export default function GraphRenderer({ graph, view, selection, onSelect, showPa
           <button type="button" className="cg-fit" onClick={fit} aria-label="Fit graph to view"><Icon name="fit" size={15} /><span>Fit</span></button>
         </div>
       </div>
-      <div className="cg-viewport" ref={viewportRef} tabIndex={0} role="region" aria-label="Graph canvas. Scroll or use the arrow keys to pan." data-canvas-scroll>
+      <div className="cg-viewport" ref={viewportRef} onScroll={event => setScroll({ left: event.currentTarget.scrollLeft, top: event.currentTarget.scrollTop })} tabIndex={0} role="region" aria-label="Graph canvas. Scroll or use the arrow keys to pan." data-canvas-scroll>
         {noTimeline ? <div className="cg-empty"><span>NO DATED EVENTS</span><h3>This graph has no timeline yet.</h3><p>Add events with dates to the graph document to view them here.</p></div> : <div className="cg-extent" style={{ width: extentWidth, height: extentHeight }}>
           <div className="cg-scene" style={sceneStyle}>
             {view === 'timeline' ? <>
@@ -307,7 +384,7 @@ export default function GraphRenderer({ graph, view, selection, onSelect, showPa
               {timeline.ticks.map((tick, index) => <Fragment key={index}><div className="cg-time-grid" style={{ left: tick.x, height: timeline.height - 90 }} /><span className="cg-time-tick" style={{ left: tick.x }}>{dateLabel(tick.date)}</span></Fragment>)}
               {timeline.events.map(({ event, x, y, endX }) => {
                 const selected = selection?.kind === 'event' && selection.id === event.id;
-                const node = graph.nodes.find(item => item.id === event.nodeIds[0]);
+                const node = nodeById.get(event.nodeIds[0]);
                 const color = groups.get(node?.group ?? '')?.color ?? '#7a6f5c';
                 const matches = eventMatches(event);
                 return <Fragment key={event.id}>
@@ -331,20 +408,22 @@ export default function GraphRenderer({ graph, view, selection, onSelect, showPa
                   const connected = selectedNodeIds.has(edge.source) || selectedNodeIds.has(edge.target);
                   const matches = !normalizedQuery || matchingNodes.has(edge.source) && matchingNodes.has(edge.target);
                   const highlighted = showPath && edge.highlighted;
-                  return <g key={edge.id} className={`cg-edge${edge.status === 'inferred' ? ' cg-edge--inferred' : ''}${highlighted ? ' cg-edge--highlighted' : ''}${connected ? ' cg-edge--connected' : ''}${selected ? ' is-selected' : ''}${matches ? '' : ' is-muted'}`} tabIndex={matches ? 0 : -1} role="button" aria-pressed={selected} aria-label={`Relation: ${edge.label}, ${graph.nodes.find(node => node.id === edge.source)?.label} to ${graph.nodes.find(node => node.id === edge.target)?.label}`} onClick={() => onSelect({ kind: 'edge', id: edge.id })} onKeyDown={event => activateEdge(event, () => onSelect({ kind: 'edge', id: edge.id }))}>
-                    <title>{edge.label} · {edge.status}</title><path className="cg-edge-hit" d={geometry.path} /><path className="cg-edge-line" d={geometry.path} markerEnd={`url(#${markerId})`} />
-                    {(graph.edges.length <= 65 || selected || highlighted) && <foreignObject x={geometry.label.x - 77} y={geometry.label.y - 10} width="154" height="22"><div className="cg-edge-label" title={edge.label}>{edge.label}</div></foreignObject>}
+                  return <g key={edge.id} className={`cg-edge${edge.claim ? ` cg-edge--${edge.claim.stance}` : ''}${edge.status === 'inferred' || (edge.claim && edge.claim.stance !== 'asserted') ? ' cg-edge--inferred' : ''}${highlighted ? ' cg-edge--highlighted' : ''}${connected ? ' cg-edge--connected' : ''}${selected ? ' is-selected' : ''}${matches ? '' : ' is-muted'}`} tabIndex={matches ? 0 : -1} role="button" aria-pressed={selected} aria-label={`Relation: ${edge.label}, ${nodeById.get(edge.source)?.label} to ${nodeById.get(edge.target)?.label}`} onClick={() => onSelect({ kind: 'edge', id: edge.id })} onKeyDown={event => activateEdge(event, () => onSelect({ kind: 'edge', id: edge.id }))}>
+                    <title>{edge.label} · {edge.claim ? stanceLabels[edge.claim.stance] : edge.status}</title><path className="cg-edge-hit" d={geometry.path} /><path className="cg-edge-line" d={geometry.path} markerEnd={`url(#${markerId})`} />
+                    {(graph.edges.length <= 65 || selected || highlighted) && <foreignObject x={geometry.label.x - 77} y={geometry.label.y - 10} width="154" height="22"><div className="cg-edge-label" title={edge.label}>{edge.claim && edge.claim.stance !== "asserted" ? `${stanceLabels[edge.claim.stance]} · ` : ""}{edge.label}</div></foreignObject>}
                   </g>;
                 })}
               </svg>
               {graph.nodes.map(node => {
                 const point = scene.positions.get(node.id);
                 if (!point) return null;
+                const pinned = selectedNodeIds.has(node.id) || dragging.current?.id === node.id;
+                if (graph.nodes.length > 100 && !pinned && (point.x * zoom < scroll.left - 250 || point.x * zoom > scroll.left + viewport.width + 250 || point.y * zoom < scroll.top - 150 || point.y * zoom > scroll.top + viewport.height + 150)) return null;
                 const selected = selection?.kind === 'node' && selection.id === node.id;
                 const related = !selected && selectedNodeIds.has(node.id);
                 const matches = !normalizedQuery || matchingNodes.has(node.id);
                 const group = groups.get(node.group);
-                return <button type="button" data-graph-node={node.id} className={`cg-node${selected ? ' is-selected' : ''}${related ? ' is-related' : ''}${matches ? '' : ' is-muted'}`} key={node.id} style={{ left: point.x, top: point.y, '--cg-color': group?.color ?? '#7a6f5c' } as CSSProperties} onClick={() => onSelect({ kind: 'node', id: node.id })} aria-pressed={selected} aria-label={`${node.type}: ${node.label}`} title={node.description || node.label} tabIndex={matches ? 0 : -1}>
+                return <button type="button" data-graph-node={node.id} className={`cg-node${selected ? ' is-selected' : ''}${related ? ' is-related' : ''}${matches ? '' : ' is-muted'}`} key={node.id} style={{ left: point.x, top: point.y, '--cg-color': group?.color ?? '#7a6f5c', touchAction: 'none', cursor: 'grab' } as CSSProperties} onPointerDown={event => startDrag(event, node.id)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag} onClick={() => { if (!suppressClick.current) onSelect({ kind: 'node', id: node.id }); suppressClick.current = false; }} aria-pressed={selected} aria-label={`${node.type}: ${node.label}`} title={node.description || node.label} tabIndex={matches ? 0 : -1}>
                   <span className="cg-node-type"><i />{node.type}</span><strong>{node.label}</strong><span className="cg-node-meta">{node.sourceIds.length} {node.sourceIds.length === 1 ? 'source' : 'sources'}<span>{group?.label}</span></span>
                 </button>;
               })}
@@ -355,4 +434,20 @@ export default function GraphRenderer({ graph, view, selection, onSelect, showPa
       <div className="cg-footer"><div className="cg-legend" aria-label="Graph legend">{displayedGroups.map(group => <span key={group.id}><i style={{ background: group.color }} />{group.label}</span>)}{view !== 'timeline' && <span><i className="cg-line-swatch" />Reported</span>}{view !== 'timeline' && hasInferred && <span><i className="cg-line-swatch cg-line-swatch--inferred" />Inferred</span>}{view !== 'timeline' && hasHighlight && <span><i className="cg-line-swatch cg-line-swatch--highlight" />Evidence path</span>}</div><span className="cg-pan-hint">Scroll to pan · Select to inspect</span></div>
     </section>
   );
+}
+
+
+export default function GraphRenderer(props: GraphRendererProps) {
+  const [group, setGroup] = useState(''); const [page, setPage] = useState(0); const [depth, setDepth] = useState(1);
+  const large = props.graph.nodes.length > 200 || props.graph.edges.length > 1000 || props.graph.events.length > 500;
+  useEffect(() => { setPage(0); setGroup(''); }, [props.graph.id, props.selection?.id, props.query]);
+  const projection = useMemo(() => exploreGraph(props.graph, { selection: props.selection, group, query: props.query, page, depth }), [props.graph, props.selection, group, props.query, page, depth]);
+  if (!large) return <GraphCanvas {...props} />;
+  return <div className="cg-explorer"><div className="cg-explorer-controls" aria-label="대규모 그래프 탐색">
+    <span>전체 {props.graph.nodes.length.toLocaleString()}개 · 현재 {projection.graph.nodes.length}개 표시</span>
+    <label>객체 유형 <select value={group} onChange={event => { setGroup(event.target.value); setPage(0); }}><option value="">모든 유형</option>{props.graph.groups.map(group => <option key={group.id} value={group.id}>{group.label}</option>)}</select></label>
+    <label>연결 범위 <select value={depth} onChange={event => { setDepth(Number(event.target.value)); setPage(0); }}><option value={0}>전체 목록</option><option value={1}>선택한 객체의 직접 연결</option><option value={2}>두 단계 연결</option></select></label>
+    <button type="button" disabled={projection.page === 0} onClick={() => setPage(projection.page - 1)}>이전</button><span>{projection.page + 1} / {projection.pages}</span><button type="button" disabled={projection.page + 1 >= projection.pages} onClick={() => setPage(projection.page + 1)}>다음</button>
+    {!!projection.hiddenEdges && <small>현재 객체 사이의 관계 {projection.hiddenEdges}개 추가 보관 · 객체를 선택해 좁혀주세요.</small>}
+  </div><GraphCanvas {...props} graph={projection.graph} /></div>;
 }

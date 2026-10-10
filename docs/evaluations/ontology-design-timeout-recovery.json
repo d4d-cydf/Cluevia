@@ -1,0 +1,24 @@
+{
+  "event": "design_success",
+  "elapsedMs": 226602,
+  "calls": 1,
+  "objectTypes": 8,
+  "linkTypes": 16,
+  "sourceMappings": 10,
+  "decisionRules": 2,
+  "metrics": {
+    "codexInputTokens": 14288,
+    "codexOutputTokens": 8068,
+    "codexCachedInputTokens": 0,
+    "codexRunMs": 225197.2363,
+    "designMs": 226601.3784
+  },
+  "date": "2026-10-10",
+  "model": "gpt-6.1-sol",
+  "effort": "high",
+  "timeoutMs": 300000,
+  "documents": 5,
+  "inputCharacters": 5421,
+  "contextCharacters": 3180,
+  "scope": "Design-only validation on the failed request. No graph extraction was started and no case data was changed. This single run does not establish a general latency or accuracy guarantee."
+}

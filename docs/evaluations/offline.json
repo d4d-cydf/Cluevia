@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "analysis-eval-1",
+  "createdAt": "2026-10-10T09:24:46.183Z",
+  "mode": "offline-harness",
+  "retrieval": {
+    "baselineFirst8000FindsGold": false,
+    "relevantPassagesFindGold": true,
+    "excerptsAreExact": true
+  },
+  "simulatedScheduling": {
+    "note": "Eight synthetic 20 ms tasks; this does not estimate model latency or production speedup.",
+    "serialMs": 163.596017,
+    "concurrent2Ms": 82.07223199999999
+  },
+  "note": "No model was called. Run with --live to measure extraction quality and latency; offline checks cannot establish LLM accuracy."
+}

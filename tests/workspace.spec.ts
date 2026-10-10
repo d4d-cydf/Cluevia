@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { expect, test } from '@playwright/test';
+import { mockClarification, startUnscopedAnalysis } from './clarification-fixture';
 import type { Page } from '@playwright/test';
 
 const demoCase = '/case/0143';
@@ -10,9 +11,19 @@ test.beforeEach(async ({ page }) => {
   const browserErrors: string[] = [];
   page.on('pageerror', error => browserErrors.push(error.message));
   page.on('console', message => {
-    if (message.type() === 'error') browserErrors.push(message.text());
+    const expectedMissingGraph = message.location().url.endsWith('/api/graphs/not-a-case') && /404/.test(message.text());
+    if (message.type() === 'error' && !expectedMissingGraph) browserErrors.push(message.text());
   });
   (page as Page & { browserErrors: string[] }).browserErrors = browserErrors;
+  // Unmocked mutations must never reach a live model or workspace while testing UI.
+  await page.route('**/api/**', route => {
+    if (route.request().method() === 'GET') return route.fallback();
+    browserErrors.push(`Unexpected unmocked API mutation: ${route.request().method()} ${new URL(route.request().url()).pathname}`);
+    return route.fulfill({ status: 500, json: { error: 'Unexpected unmocked API mutation' } });
+  });
+  await page.route('**/api/system/status', route => route.fulfill({ json: { authenticated: true, authRequired: false, provider: { kind: 'codex', available: true, authenticated: true, message: 'Workspace ready' }, ontology: { entities: 12, relationships: 15, documents: 3, graphs: 1 }, activeJobs: [] } }));
+  await page.route('**/api/graphs', route => route.fulfill({ json: { graphs: [] } }));
+  await mockClarification(page);
 });
 
 test.afterEach(async ({ page }) => {
@@ -44,7 +55,13 @@ test('home requires a question or file and removes attached evidence', async ({ 
   await expect(start).toBeDisabled();
 });
 
-test('dropped evidence requires a question before generation', async ({ page }) => {
+test('dropped evidence starts an analysis with the default extraction question', async ({ page }) => {
+  const question = '첨부 자료의 객체와 관계를 근거에 따라 정리해줘.';
+  const job = { id: 'dropped-source-job', status: 'running', stage: 'designing', message: '자료에 맞는 온톨로지를 설계하고 있습니다.', question, createdAt: '2026-10-10T00:00:00Z', updatedAt: '2026-10-10T00:00:00Z' };
+  let submission: unknown;
+  await page.route('**/api/documents/upload', route => route.fulfill({ status: 201, json: { document: { id: 'dropped-source', name: 'dropped.txt', bytes: 14, characters: 14, chunkCount: 1, createdAt: job.createdAt } } }));
+  await page.route('**/api/jobs', route => { submission = route.request().postDataJSON(); return route.fulfill({ status: 202, json: { job } }); });
+  await page.route('**/api/jobs/dropped-source-job', route => route.fulfill({ json: { job } }));
   await page.goto('/');
   const dataTransfer = await page.evaluateHandle(() => {
     const transfer = new DataTransfer();
@@ -53,19 +70,25 @@ test('dropped evidence requires a question before generation', async ({ page }) 
   });
   await page.locator('.home-screen').dispatchEvent('drop', { dataTransfer });
   await expect(page.getByRole('list', { name: 'Attached files' })).toContainText('dropped.txt');
-  await page.getByRole('button', { name: 'START INVESTIGATION' }).click();
-  await expect(page).toHaveURL('/');
-  await expect(page.getByRole('alert')).toContainText('질문을 입력');
+  await startUnscopedAnalysis(page);
+  await expect(page).toHaveURL('/analysis/dropped-source-job');
+  await expect(page.getByLabel('AI analysis activity', { exact: true })).toContainText(question);
+  expect(submission).toEqual({ question, documents: [], uploadIds: ['dropped-source'] });
 });
 
-test('a question without evidence reports the missing source', async ({ page }) => {
-  await page.goto('/');
+test('a question without uploaded evidence submits an existing-knowledge job', async ({ page }) => {
   const question = 'What connections are shown in this example case?';
+  let submitted: unknown;
+  const job = { id: 'workspace-test-job', status: 'queued', stage: 'preparing', message: '저장된 자료로 작업 대기 중', question, createdAt: '2026-10-10T00:00:00Z', updatedAt: '2026-10-10T00:00:00Z' };
+  await page.route('**/api/jobs', route => { submitted = route.request().postDataJSON(); return route.fulfill({ status: 202, json: { job } }); });
+  await page.route('**/api/jobs/workspace-test-job', route => route.fulfill({ json: { job } }));
+  await page.goto('/');
   await page.getByLabel('What do you want to find out?').fill(question);
-  await page.getByRole('button', { name: 'START INVESTIGATION' }).click();
-  await expect(page).toHaveURL('/');
-  await expect(page.getByRole('alert')).toContainText('자료');
-  await expect(page.getByLabel('What do you want to find out?')).toHaveValue(question);
+  await startUnscopedAnalysis(page);
+  await expect(page).toHaveURL('/analysis/workspace-test-job');
+  await expect(page.getByLabel('AI analysis activity', { exact: true })).toContainText(job.message);
+  expect(submitted).toEqual({ question, documents: [] });
+  await expect(page.getByLabel('AI analysis activity', { exact: true })).toContainText(question);
 });
 
 test('view tabs navigate between the graph layouts and timeline', async ({ page }) => {
@@ -157,8 +180,8 @@ test.describe('mobile layout', () => {
   test('home and all case views fit the page while controls remain usable', async ({ page }) => {
     await page.goto('/');
     await expectNoPageOverflow(page);
-    await page.getByRole('button', { name: 'MY CASES', exact: true }).click();
-    await page.getByRole('link', { name: 'Original design demo ↗', exact: true }).click();
+    await page.getByRole('button', { name: '사이드바 열기', exact: true }).click();
+    await page.getByRole('link', { name: /Original design demo/ }).click();
     await expect(page).toHaveURL(`${demoCase}/board`);
     await expectNoPageOverflow(page);
     await page.getByRole('button', { name: 'IP ADDRESS: 203.0.113.42', exact: true }).click();

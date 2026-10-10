@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, Navigate, NavLink, useParams } from 'react-router-dom';
 import { Icon } from '../components/Icon';
 import BrandLogo, { BrandMark } from '../components/BrandLogo';
+import { CaseSidebarToggle } from '../components/CaseSidebar';
 import { investigationSteps, objectColors } from '../mock/case-0143';
 import { caseRepository, readCaseDraft, readSession, writeSession } from '../services/case-repository';
 import type { Attachment, CaseAction, CaseMessage, InvestigationCase, WorkspaceView } from '../types/case';
@@ -148,8 +149,8 @@ function CaseWorkspace({ data, view }: { data: InvestigationCase; view: Workspac
 
   return <div className="workspace">
     <header className="ws-header">
-      <div className="ws-header-left"><Link to="/" className="ws-brand" aria-label="Cluevia home"><BrandLogo /></Link><span className="ws-header-rule" /><div className="ws-case-title"><span>CASE {data.id}</span><strong title={question}>{initialDraft ? question : data.title}</strong></div></div>
-      <div className="ws-header-actions"><span className="ws-demo-label">DEMO</span><Link to="/"><Icon name="plus" size={14} />NEW CASE</Link><details className="ws-menu"><summary>MY CASES</summary><div><span className="eyebrow">RECENT CASE</span><Link to={`/case/${data.id}/board`}>0143 · secure-login.example</Link><small>Local preview · fictional evidence</small></div></details><button type="button" onClick={exportCase}>EXPORT</button><details className="ws-menu ws-account"><summary aria-label="Account"><span>JH</span></summary><div><strong>Local workspace</strong><small>Demo session</small><Link to="/">Start a new case →</Link></div></details></div>
+      <div className="ws-header-left"><CaseSidebarToggle /><Link to="/" className="ws-brand" aria-label="Cluevia home"><BrandLogo /></Link><span className="ws-header-rule" /><div className="ws-case-title"><span>CASE {data.id}</span><strong title={question}>{initialDraft ? question : data.title}</strong></div></div>
+      <div className="ws-header-actions"><span className="ws-demo-label">DEMO</span><Link to="/"><Icon name="plus" size={14} />NEW CASE</Link><button type="button" onClick={exportCase}>EXPORT</button><details className="ws-menu ws-account"><summary aria-label="Account"><span>JH</span></summary><div><strong>Local workspace</strong><small>Demo session</small><Link to="/">Start a new case →</Link></div></details></div>
     </header>
     <div className="ws-body">
       <aside className="ws-conversation" aria-label="Conversation">

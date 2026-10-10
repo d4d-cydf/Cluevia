@@ -1,3 +1,4 @@
+import { readRelationClaim } from './claim.ts';
 import type { GraphDocument, GraphEdge, GraphEvent, GraphFinding, GraphGroup, GraphNode, GraphSource } from '../types/graph.ts';
 
 export const GRAPH_LIMITS = { nodes: 200, edges: 500, events: 300, sources: 30, groups: 12, documents: 10, documentChars: 50_000, totalDocumentChars: 150_000, jsonBytes: 2_000_000 } as const;
@@ -56,7 +57,7 @@ export function safeSourceUrl(value: unknown): string | undefined {
 export function parseGraphDocument(input: unknown): GraphDocument {
   const root = object(input, 'graph');
   if (root.schemaVersion !== '1.0') fail('schemaVersion', '지원하는 버전은 1.0입니다.');
-  if (!['published-source', 'imported', 'aip', 'demo'].includes(String(root.origin))) fail('origin', '유효하지 않은 데이터 유형입니다.');
+  if (!['published-source', 'imported', 'aip', 'codex', 'jev', 'structured', 'demo'].includes(String(root.origin))) fail('origin', '유효하지 않은 데이터 유형입니다.');
   const graphId = id(root.id, 'id');
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(graphId)) fail('id', '그래프 ID에는 콜론을 사용할 수 없습니다.');
   const groups: GraphGroup[] = list(root.groups, 'groups', GRAPH_LIMITS.groups, 1).map((entry, index) => {
@@ -72,6 +73,7 @@ export function parseGraphDocument(input: unknown): GraphDocument {
     if (item.publisher !== undefined) source.publisher = text(item.publisher, 'source.publisher', 150);
     if (item.publishedAt !== undefined) source.publishedAt = date(item.publishedAt, 'source.publishedAt');
     if (item.accessedAt !== undefined) source.accessedAt = date(item.accessedAt, 'source.accessedAt');
+    for (const key of ['contentHash', 'sourceFamily'] as const) if (item[key] !== undefined) { if (typeof item[key] !== 'string' || !/^[a-f0-9]{64}$/.test(item[key])) fail(`source.${key}`, 'SHA-256 해시가 필요합니다.'); source[key] = String(item[key]); }
     if (item.excerpt !== undefined) source.excerpt = text(item.excerpt, 'source.excerpt', 1200);
     return source;
   });
@@ -85,7 +87,7 @@ export function parseGraphDocument(input: unknown): GraphDocument {
     const item = object(entry, `edges[${index}]`);
     if (!['reported', 'inferred'].includes(String(item.status))) fail('edge.status', 'reported 또는 inferred가 필요합니다.');
     if (item.highlighted !== undefined && typeof item.highlighted !== 'boolean') fail('edge.highlighted', 'boolean이 필요합니다.');
-    return { id: id(item.id, 'edge.id'), source: id(item.source, 'edge.source'), target: id(item.target, 'edge.target'), label: text(item.label, 'edge.label', 150), description: text(item.description, 'edge.description', 2000, true), status: item.status as GraphEdge['status'], sourceIds: refs(item.sourceIds, 'edge.sourceIds'), ...(item.highlighted === undefined ? {} : { highlighted: item.highlighted as boolean }) };
+    return { id: id(item.id, 'edge.id'), source: id(item.source, 'edge.source'), target: id(item.target, 'edge.target'), label: text(item.label, 'edge.label', 150), description: text(item.description, 'edge.description', 2000, true), status: item.status as GraphEdge['status'], ...(item.claim === undefined ? {} : { claim: (() => { try { return readRelationClaim(item.claim); } catch (error) { return fail('edge.claim', error instanceof Error ? error.message : '잘못된 주장입니다.'); } })() }), sourceIds: refs(item.sourceIds, 'edge.sourceIds'), ...(item.highlighted === undefined ? {} : { highlighted: item.highlighted as boolean }) };
   });
   const events: GraphEvent[] = list(root.events, 'events', GRAPH_LIMITS.events).map((entry, index) => {
     const item = object(entry, `events[${index}]`);
@@ -103,7 +105,9 @@ export function parseGraphDocument(input: unknown): GraphDocument {
   for (const edge of edges) { assertRefs([edge.source, edge.target], nodeIds, `edge ${edge.id}`); assertRefs(edge.sourceIds, sourceIds, `edge ${edge.id}.sourceIds`); }
   for (const event of events) { assertRefs(event.nodeIds, nodeIds, `event ${event.id}.nodeIds`); assertRefs(event.sourceIds, sourceIds, `event ${event.id}.sourceIds`); }
   for (const finding of findings) { assertRefs(finding.nodeIds, nodeIds, 'finding.nodeIds'); assertRefs(finding.edgeIds ?? [], edgeIds, 'finding.edgeIds'); assertRefs(finding.sourceIds, sourceIds, 'finding.sourceIds'); }
-  return { schemaVersion: '1.0', id: graphId, title: text(root.title, 'title', 200), question: text(root.question, 'question', 2000), summary: text(root.summary, 'summary', 5000), origin: root.origin as GraphDocument['origin'], createdAt: date(root.createdAt, 'createdAt'), limitations: list(root.limitations, 'limitations', 20).map((entry, index) => text(entry, `limitations[${index}]`, 1000)), groups, sources, nodes, edges, events, findings };
+  if ((root.ontologyId === undefined) !== (root.ontologyVersion === undefined)) fail('ontologyId', '온톨로지 ID와 버전이 함께 필요합니다.');
+  if (root.ontologyVersion !== undefined && (!Number.isSafeInteger(root.ontologyVersion) || Number(root.ontologyVersion) < 1)) fail('ontologyVersion', '양의 정수여야 합니다.');
+  return { schemaVersion: '1.0', ...(root.ontologyId === undefined ? {} : { ontologyId: id(root.ontologyId, 'ontologyId'), ontologyVersion: Number(root.ontologyVersion) }), id: graphId, title: text(root.title, 'title', 200), question: text(root.question, 'question', 2000), summary: text(root.summary, 'summary', 5000), origin: root.origin as GraphDocument['origin'], createdAt: date(root.createdAt, 'createdAt'), limitations: list(root.limitations, 'limitations', 20).map((entry, index) => text(entry, `limitations[${index}]`, 1000)), groups, sources, nodes, edges, events, findings };
 }
 
 export function parseGraphText(contents: string): GraphDocument {

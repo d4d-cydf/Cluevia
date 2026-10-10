@@ -89,3 +89,12 @@
   .cg-pan-hint { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .cg-root * { transition: none; } }
+
+.cg-explorer { display: flex; flex-direction: column; min-height: 0; height: 100%; }
+.cg-explorer .cg-root { flex: 1; min-height: 380px; }
+.cg-explorer-controls { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 10px 16px; border-bottom: 1px solid #dcd4c4; background: #f8f4eb; font-size: 11px; }
+.cg-explorer-controls select, .cg-explorer-controls button { font: inherit; border: 1px solid #c7bdab; background: #fffdf7; border-radius: 5px; padding: 5px 7px; }
+
+.cg-edge--denied .cg-edge-line { stroke: #b53b2d; stroke-dasharray: 5 4; }
+.cg-edge--retracted .cg-edge-line { stroke: #837c70; stroke-dasharray: 3 5; opacity: .65; }
+.cg-edge--uncertain .cg-edge-line { stroke: #ad7b24; stroke-dasharray: 6 4; }

@@ -23,6 +23,11 @@
 .gw-sources article > span, .gw-sources time { display: block; font: 10px var(--mono); color: #5e5546; }
 .gw-sources h3 { margin: 6px 0; font-size: 12px; line-height: 1.6; font-weight: 500; overflow-wrap: anywhere; }
 .gw-sources p { margin: 6px 0 0; font-size: 11px; line-height: 1.7; color: #5e5546; }
+.gw-sources { min-width: 0; max-width: 100%; }
+.gw-sources article { min-width: 0; max-width: 100%; overflow-wrap: anywhere; word-break: break-word; }
+.gw-sources article > span, .gw-sources article p, .gw-sources article a { overflow-wrap: anywhere; word-break: break-word; white-space: pre-wrap; }
+.gw-conversation[hidden] { display: none; }
+.gw-panel-toggle { display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid #cdbf9f; background: #fbf8f1; border-radius: 5px; cursor: pointer; flex: 0 0 36px; }
 .gw-data-note { padding-top: 12px; border-top: 1px solid #e4d9c3; font-size: 10.5px; line-height: 1.7; color: #5e5546; }
 .gw-main { min-width: 0; flex: 1; display: flex; flex-direction: column; background: #e6dcc6; }
 .gw-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid #cdbf9f; }
@@ -64,3 +69,37 @@
   .gw-inspector { flex-direction: column; } .gw-inspector-details { flex: auto; } .gw-inspector h1 { font-size: 19px; }
   .gw-path-toggle { font-size: 10px; } .gw-workspace .ws-header-actions { gap: 3px; } .gw-workspace .ws-header-actions > a { padding-inline: 5px; }
 }
+.gw-offline-import { display: flex; justify-content: center; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px; border-bottom: 1px solid #d1bea1; background: #f5ead8; color: #5e4e34; font-size: 12px; }
+.gw-offline-import button { border: 1px solid #c3ae89; padding: 7px 10px; border-radius: 3px; background: #fbf8f1; }
+@media (max-width: 600px) {
+  .gw-workspace .ws-header-actions { flex-wrap: wrap; }
+  .gw-workspace .ws-header-actions > a,
+  .gw-workspace .ws-header-actions > button,
+  .gw-workspace .ws-header-actions .ws-menu summary { padding-inline: 5px; font-size: 10px; letter-spacing: .08em; }
+}
+.gw-collection { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; padding: 14px 24px; border-bottom: 1px solid #cfbea0; background: #f4eddf; }
+.gw-collection-summary { flex: 1 1 270px; min-width: 0; }
+.gw-collection-summary strong { display: block; color: #4c402c; font-size: 12px; }
+.gw-collection-summary > span { display: block; margin-top: 5px; color: #877454; font-size: 10px; }
+.gw-collection-summary p { margin: 5px 0 0; color: #958262; font-size: 10px; line-height: 1.7; }
+.gw-collection-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
+.gw-collection-controls > a, .gw-collection-controls > span { padding: 7px 9px; border: 1px solid #ccba98; border-radius: 3px; color: #695435; background: #fbf8f1; font-size: 11px; text-decoration: none; white-space: nowrap; }
+.gw-collection-controls > span[aria-disabled] { color: #b5a384; background: transparent; }
+.gw-collection-controls label { min-width: 0; flex: 1; }
+.gw-collection-controls select { max-width: 260px; width: 100%; padding: 7px 9px; border: 1px solid #ccba98; border-radius: 3px; background: #fbf8f1; font-size: 11px; color: #695435; text-overflow: ellipsis; }
+.gw-collection-controls > a.gw-collection-job { border: 0; background: transparent; color: #877454; font-size: 10px; }
+.gw-collection-error { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px 24px; background: #fbefeb; color: #9b4d37; font-size: 11px; }
+.gw-collection-error button { padding: 5px 9px; border: 1px solid #cda48e; border-radius: 3px; background: transparent; font-size: 11px; }
+@media (max-width: 600px) { .gw-collection { padding: 12px 14px; } .gw-collection-controls { width: 100%; } .gw-collection-controls > a.gw-collection-job { flex-basis: 100%; padding-left: 0; } }
+.gw-toolbar nav button { display: inline-flex; align-items: center; height: 38px; padding: 0 13px; border: 0; background: transparent; color: #5e5546; font: bold 11px var(--mono); letter-spacing: .08em; border-radius: 4px; }
+.gw-toolbar nav button.active { color: #fbf8f1; background: #1e1b16; }
+.gw-collection-controls > button { padding: 7px 9px; border: 1px solid #ccba98; border-radius: 3px; color: #695435; background: #fbf8f1; font-size: 11px; white-space: nowrap; }
+@media (max-width: 600px) { .gw-toolbar nav button { flex: 1; justify-content: center; } }
+
+.claim-review { padding: 16px; border-top: 1px solid #ded7c9; font-size: 12px; }
+.claim-review h2 { font-size: 12px; margin: 0 0 12px; }
+.claim-review dl > div { display: grid; grid-template-columns: 110px 1fr; gap: 12px; margin: 8px 0; }
+.claim-review dd { margin: 0; overflow-wrap: anywhere; }
+.claim-review label { display: grid; gap: 6px; margin: 10px 0; }
+.claim-review textarea, .claim-review select { max-width: 100%; border: 1px solid #c8bfaf; padding: 8px; border-radius: 6px; background: #fffdf8; color: #333; font: inherit; }
+.claim-review button { padding: 7px 12px; border: 1px solid #bbb29f; border-radius: 6px; background: #f4efe3; }

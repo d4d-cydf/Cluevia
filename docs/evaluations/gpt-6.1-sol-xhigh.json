@@ -1,0 +1,114 @@
+{
+  "schemaVersion": "analysis-eval-1",
+  "createdAt": "2026-10-10T09:25:54.631Z",
+  "mode": "live-synthetic-corpus",
+  "retrieval": {
+    "baselineFirst8000FindsGold": false,
+    "relevantPassagesFindGold": true,
+    "excerptsAreExact": true
+  },
+  "simulatedScheduling": {
+    "note": "Eight synthetic 20 ms tasks; this does not estimate model latency or production speedup.",
+    "serialMs": 162.646274,
+    "concurrent2Ms": 81.54895099999999
+  },
+  "model": "gpt-6.1-sol",
+  "effort": "xhigh",
+  "cases": [
+    {
+      "id": "ownership",
+      "elapsedMs": 40598.082381,
+      "usage": {
+        "inputTokens": 10708,
+        "outputTokens": 1218,
+        "cachedInputTokens": 0
+      },
+      "validEvidence": true,
+      "entityRecall": 1,
+      "relationPrecision": 1,
+      "relationRecall": 1,
+      "wrongMerges": 0,
+      "stanceErrors": 0
+    },
+    {
+      "id": "employment",
+      "elapsedMs": 38301.151923,
+      "usage": {
+        "inputTokens": 10710,
+        "outputTokens": 1247,
+        "cachedInputTokens": 0
+      },
+      "validEvidence": true,
+      "entityRecall": 1,
+      "relationPrecision": 1,
+      "relationRecall": 1,
+      "wrongMerges": 0,
+      "stanceErrors": 0
+    },
+    {
+      "id": "logistics",
+      "elapsedMs": 32466.009885000007,
+      "usage": {
+        "inputTokens": 10708,
+        "outputTokens": 994,
+        "cachedInputTokens": 8448
+      },
+      "validEvidence": true,
+      "entityRecall": 1,
+      "relationPrecision": 1,
+      "relationRecall": 1,
+      "wrongMerges": 0,
+      "stanceErrors": 0
+    },
+    {
+      "id": "denial",
+      "elapsedMs": 45115.98360899999,
+      "usage": {
+        "inputTokens": 10715,
+        "outputTokens": 1497,
+        "cachedInputTokens": 0
+      },
+      "validEvidence": true,
+      "entityRecall": 1,
+      "relationPrecision": 1,
+      "relationRecall": 1,
+      "wrongMerges": 0,
+      "stanceErrors": 0
+    },
+    {
+      "id": "retraction",
+      "elapsedMs": 55346.705228999985,
+      "usage": {
+        "inputTokens": 10719,
+        "outputTokens": 1727,
+        "cachedInputTokens": 0
+      },
+      "validEvidence": true,
+      "entityRecall": 1,
+      "relationPrecision": 1,
+      "relationRecall": 1,
+      "wrongMerges": 0,
+      "stanceErrors": 0
+    },
+    {
+      "id": "homonyms",
+      "elapsedMs": 43568.19823100002,
+      "usage": {
+        "inputTokens": 10729,
+        "outputTokens": 1667,
+        "cachedInputTokens": 0
+      },
+      "validEvidence": true,
+      "entityRecall": 1,
+      "relationPrecision": 1,
+      "relationRecall": 1,
+      "wrongMerges": 0,
+      "stanceErrors": 0
+    }
+  ],
+  "latency": {
+    "p50Ms": 40598.082381,
+    "p95Ms": 55346.705228999985
+  },
+  "note": "Small synthetic regression corpus, not a claim about real-world OSINT accuracy. Compare reports under identical model/settings before lowering effort."
+}
