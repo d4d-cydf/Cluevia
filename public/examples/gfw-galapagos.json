@@ -1,0 +1,473 @@
+{
+  "schemaVersion": "1.0",
+  "id": "gfw-galapagos",
+  "title": "Galápagos · 2017",
+  "question": "Fu Yuan Yu Leng 999의 조우 선박과 갈라파고스 나포 사건은 어떻게 연결되는가?",
+  "summary": "GFW 공개 사례를 선박·조우·장소·기관의 관계로 구조화했습니다. 점선은 가능한 환적을 나타냅니다.",
+  "origin": "published-source",
+  "createdAt": "2026-10-10T00:00:00Z",
+  "limitations": [
+    "2017년 공개 문헌 기반 사례입니다. 실시간 AIS/API 조회 결과가 아닙니다.",
+    "조우는 환적 가능성을 보여주며, 실제 화물 이전이나 포획 장소를 확정하지 않습니다.",
+    "노드 위치는 관계도 배치입니다. 실제 좌표·항적이 아닙니다."
+  ],
+  "groups": [
+    {
+      "id": "vessels",
+      "label": "선박",
+      "color": "#f0aa56"
+    },
+    {
+      "id": "events",
+      "label": "사건",
+      "color": "#ee737b"
+    },
+    {
+      "id": "places",
+      "label": "장소",
+      "color": "#9690ed"
+    },
+    {
+      "id": "organizations",
+      "label": "기관",
+      "color": "#65c6c3"
+    }
+  ],
+  "sources": [
+    {
+      "id": "gfw-2017",
+      "title": "GFW · 갈라파고스 AIS 사례 분석",
+      "url": "https://globalfishingwatch.org/impacts/policy-compliance/transhippment-reefer-illegal-sharks/",
+      "publisher": "Global Fishing Watch",
+      "publishedAt": "2017-08-28",
+      "accessedAt": "2026-10-10",
+      "excerpt": "네 연승선과의 조우 및 나포 경위를 설명한 당시 분석."
+    },
+    {
+      "id": "gfw-outcome",
+      "title": "GFW · 사건 후속 보고",
+      "url": "https://globalfishingwatch.org/success-story/data-and-analysis-help-track-illegal-shark-fishing/",
+      "publisher": "Global Fishing Watch",
+      "accessedAt": "2026-10-10",
+      "excerpt": "선내 상어와 지느러미의 조사 수량, 분석 활용 결과를 설명."
+    },
+    {
+      "id": "gfw-map",
+      "title": "GFW · 지도와 분석 방법",
+      "url": "https://globalfishingwatch.org/our-map/",
+      "publisher": "Global Fishing Watch",
+      "accessedAt": "2026-10-10",
+      "excerpt": "AIS·VMS를 활용해 선박 활동과 조우를 시각화하는 플랫폼 안내."
+    }
+  ],
+  "nodes": [
+    {
+      "id": "carrier",
+      "label": "Fu Yuan Yu Leng 999",
+      "type": "carrier",
+      "group": "vessels",
+      "description": "사건의 중심인 중국 국적 냉동 운반선.",
+      "sourceIds": [
+        "gfw-2017"
+      ],
+      "properties": {
+        "선박 유형": "냉동 운반선",
+        "국적": "중국"
+      }
+    },
+    {
+      "id": "longliner-7866",
+      "label": "Fu Yuan Yu 7866",
+      "type": "fishing-vessel",
+      "group": "vessels",
+      "description": "조우 연승선.",
+      "sourceIds": [
+        "gfw-2017"
+      ],
+      "properties": {
+        "선박 유형": "연승선",
+        "국적": "중국"
+      }
+    },
+    {
+      "id": "longliner-7861",
+      "label": "Fu Yuan Yu 7861",
+      "type": "fishing-vessel",
+      "group": "vessels",
+      "description": "조우 연승선.",
+      "sourceIds": [
+        "gfw-2017"
+      ],
+      "properties": {
+        "선박 유형": "연승선",
+        "국적": "중국"
+      }
+    },
+    {
+      "id": "longliner-7865",
+      "label": "Fu Yuan Yu 7865",
+      "type": "fishing-vessel",
+      "group": "vessels",
+      "description": "조우 연승선.",
+      "sourceIds": [
+        "gfw-2017"
+      ],
+      "properties": {
+        "선박 유형": "연승선",
+        "국적": "중국"
+      }
+    },
+    {
+      "id": "longliner-7862",
+      "label": "Fu Yuan Yu 7862",
+      "type": "fishing-vessel",
+      "group": "vessels",
+      "description": "조우 연승선.",
+      "sourceIds": [
+        "gfw-2017"
+      ],
+      "properties": {
+        "선박 유형": "연승선",
+        "국적": "중국"
+      }
+    },
+    {
+      "id": "encounters",
+      "label": "4척과 AIS 조우",
+      "type": "encounter",
+      "group": "events",
+      "description": "각 조우에서 약 12시간, 약 30m 간격으로 근접 운항.",
+      "sourceIds": [
+        "gfw-2017"
+      ],
+      "properties": {
+        "기간": "2017-08-05 ~ 2017-08-07",
+        "해석": "환적 가능성"
+      }
+    },
+    {
+      "id": "interception",
+      "label": "운반선 나포",
+      "type": "interception",
+      "group": "events",
+      "description": "상어를 실은 운반선의 보호수역 내 나포.",
+      "sourceIds": [
+        "gfw-2017",
+        "gfw-outcome"
+      ],
+      "properties": {
+        "발생일": "2017-08-13"
+      }
+    },
+    {
+      "id": "fuzhou",
+      "label": "푸저우 항",
+      "type": "port",
+      "group": "places",
+      "description": "태평양 항해 이전 기항지. 기항일 미기재.",
+      "sourceIds": [
+        "gfw-2017"
+      ],
+      "properties": {
+        "국가": "중국"
+      }
+    },
+    {
+      "id": "eastern-pacific",
+      "label": "적도 동태평양",
+      "type": "area",
+      "group": "places",
+      "description": "공개 분석에 명시된 조우 해역.",
+      "sourceIds": [
+        "gfw-2017"
+      ],
+      "properties": {
+        "위치 정밀도": "해역 수준"
+      }
+    },
+    {
+      "id": "galapagos",
+      "label": "갈라파고스 해양보호구역",
+      "type": "protected-area",
+      "group": "places",
+      "description": "나포 장소.",
+      "sourceIds": [
+        "gfw-outcome"
+      ],
+      "properties": {
+        "국가": "에콰도르"
+      }
+    },
+    {
+      "id": "ecuador-navy",
+      "label": "에콰도르 해군",
+      "type": "authority",
+      "group": "organizations",
+      "description": "공개 보고에 명시된 나포 주체.",
+      "sourceIds": [
+        "gfw-outcome"
+      ],
+      "properties": {
+        "역할": "해상 단속"
+      }
+    },
+    {
+      "id": "gfw",
+      "label": "Global Fishing Watch",
+      "type": "organization",
+      "group": "organizations",
+      "description": "선박 추적 자료를 분석한 기관.",
+      "sourceIds": [
+        "gfw-map",
+        "gfw-outcome"
+      ],
+      "properties": {
+        "자료": "공개 사례 분석"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-fuzhou",
+      "source": "carrier",
+      "target": "fuzhou",
+      "label": "이전 기항",
+      "description": "항해 전 기항.",
+      "status": "reported",
+      "sourceIds": [
+        "gfw-2017"
+      ]
+    },
+    {
+      "id": "e-carrier-encounter",
+      "source": "carrier",
+      "target": "encounters",
+      "label": "AIS 조우",
+      "description": "8월 5~7일.",
+      "status": "reported",
+      "sourceIds": [
+        "gfw-2017"
+      ],
+      "highlighted": true
+    },
+    {
+      "id": "e-7866-encounter",
+      "source": "longliner-7866",
+      "target": "encounters",
+      "label": "조우 참여",
+      "description": "분석에서 식별.",
+      "status": "reported",
+      "sourceIds": [
+        "gfw-2017"
+      ]
+    },
+    {
+      "id": "e-7861-encounter",
+      "source": "longliner-7861",
+      "target": "encounters",
+      "label": "조우 참여",
+      "description": "분석에서 식별.",
+      "status": "reported",
+      "sourceIds": [
+        "gfw-2017"
+      ]
+    },
+    {
+      "id": "e-7865-encounter",
+      "source": "longliner-7865",
+      "target": "encounters",
+      "label": "조우 참여",
+      "description": "분석에서 식별.",
+      "status": "reported",
+      "sourceIds": [
+        "gfw-2017"
+      ]
+    },
+    {
+      "id": "e-7862-encounter",
+      "source": "longliner-7862",
+      "target": "encounters",
+      "label": "조우 참여",
+      "description": "분석에서 식별.",
+      "status": "reported",
+      "sourceIds": [
+        "gfw-2017"
+      ]
+    },
+    {
+      "id": "e-encounter-area",
+      "source": "encounters",
+      "target": "eastern-pacific",
+      "label": "발생 해역",
+      "description": "지역명만 제공.",
+      "status": "reported",
+      "sourceIds": [
+        "gfw-2017"
+      ],
+      "highlighted": true
+    },
+    {
+      "id": "e-transfer-7866",
+      "source": "longliner-7866",
+      "target": "carrier",
+      "label": "환적 가능성",
+      "description": "환적 추정.",
+      "status": "inferred",
+      "sourceIds": [
+        "gfw-2017"
+      ]
+    },
+    {
+      "id": "e-transfer-7861",
+      "source": "longliner-7861",
+      "target": "carrier",
+      "label": "환적 가능성",
+      "description": "환적 추정.",
+      "status": "inferred",
+      "sourceIds": [
+        "gfw-2017"
+      ]
+    },
+    {
+      "id": "e-transfer-7865",
+      "source": "longliner-7865",
+      "target": "carrier",
+      "label": "환적 가능성",
+      "description": "환적 추정.",
+      "status": "inferred",
+      "sourceIds": [
+        "gfw-2017"
+      ]
+    },
+    {
+      "id": "e-transfer-7862",
+      "source": "longliner-7862",
+      "target": "carrier",
+      "label": "환적 가능성",
+      "description": "환적 추정.",
+      "status": "inferred",
+      "sourceIds": [
+        "gfw-2017"
+      ]
+    },
+    {
+      "id": "e-carrier-interception",
+      "source": "carrier",
+      "target": "interception",
+      "label": "나포 대상",
+      "description": "8월 13일.",
+      "status": "reported",
+      "sourceIds": [
+        "gfw-2017"
+      ],
+      "highlighted": true
+    },
+    {
+      "id": "e-navy-interception",
+      "source": "ecuador-navy",
+      "target": "interception",
+      "label": "나포",
+      "description": "에콰도르 해군의 단속.",
+      "status": "reported",
+      "sourceIds": [
+        "gfw-outcome"
+      ]
+    },
+    {
+      "id": "e-interception-place",
+      "source": "interception",
+      "target": "galapagos",
+      "label": "발생 장소",
+      "description": "보호수역 내부.",
+      "status": "reported",
+      "sourceIds": [
+        "gfw-outcome"
+      ],
+      "highlighted": true
+    },
+    {
+      "id": "e-gfw-analysis",
+      "source": "gfw",
+      "target": "encounters",
+      "label": "추적 자료 분석",
+      "description": "공개 분석의 작성 주체.",
+      "status": "reported",
+      "sourceIds": [
+        "gfw-outcome"
+      ]
+    }
+  ],
+  "events": [
+    {
+      "id": "event-encounters",
+      "label": "네 연승선과 조우",
+      "date": "2017-08-05",
+      "endDate": "2017-08-07",
+      "description": "AIS 분석의 조우 구간.",
+      "nodeIds": [
+        "carrier",
+        "encounters",
+        "longliner-7866",
+        "longliner-7861",
+        "longliner-7865",
+        "longliner-7862",
+        "eastern-pacific"
+      ],
+      "sourceIds": [
+        "gfw-2017"
+      ]
+    },
+    {
+      "id": "event-interception",
+      "label": "갈라파고스에서 나포",
+      "date": "2017-08-13",
+      "description": "공개 사례의 나포일.",
+      "nodeIds": [
+        "carrier",
+        "interception",
+        "ecuador-navy",
+        "galapagos"
+      ],
+      "sourceIds": [
+        "gfw-2017"
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "text": "조우는 환적의 확정 증거가 아닙니다.",
+      "sourceIds": [
+        "gfw-2017"
+      ],
+      "nodeIds": [
+        "carrier",
+        "encounters"
+      ],
+      "edgeIds": [
+        "e-transfer-7866",
+        "e-transfer-7861",
+        "e-transfer-7865",
+        "e-transfer-7862"
+      ]
+    },
+    {
+      "text": "후속 보고의 선내 조사 수량은 상어 7,639마리와 지느러미 537포대입니다.",
+      "sourceIds": [
+        "gfw-outcome"
+      ],
+      "nodeIds": [
+        "carrier",
+        "interception"
+      ]
+    },
+    {
+      "text": "GFW 지도는 선박 추적 자료에서 활동과 조우를 분석합니다. 이 그래프는 그중 공개된 역사적 사례를 요약한 것입니다.",
+      "sourceIds": [
+        "gfw-map"
+      ],
+      "nodeIds": [
+        "gfw"
+      ]
+    }
+  ]
+}

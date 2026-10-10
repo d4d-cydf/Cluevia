@@ -1,3 +1,4 @@
+import { randomId } from '../lib/random-id';
 import { case0143 } from '../mock/case-0143';
 import type { CaseAction, CaseDraft, CaseMessage, CaseRepository } from '../types/case';
 
@@ -26,13 +27,13 @@ export const caseRepository: CaseRepository = {
   async runAction(caseId, objectId, label) {
     const object = case0143.objects[objectId];
     if (caseId !== case0143.id || !object?.actions.includes(label)) throw new Error('This action is unavailable.');
-    const action: CaseAction = { id: crypto.randomUUID(), objectId, label, status: 'queued', createdAt: new Date().toISOString() };
+    const action: CaseAction = { id: randomId(), objectId, label, status: 'queued', createdAt: new Date().toISOString() };
     return action;
   },
   async sendMessage(caseId, text, files) {
     if (caseId !== case0143.id || (!text.trim() && !files.length)) throw new Error('Add a question or a file first.');
     const message: CaseMessage = {
-      id: crypto.randomUUID(),
+      id: randomId(),
       role: 'assistant',
       text: files.length
         ? 'Added your question and file names to this demo case. Files have not been uploaded or analyzed. Live research is not available in this preview.'

@@ -1,3 +1,4 @@
+import { randomId } from '../lib/random-id';
 import { useEffect, useRef, useState } from 'react';
 import { Link, Navigate, NavLink, useParams } from 'react-router-dom';
 import { Icon } from '../components/Icon';
@@ -107,7 +108,7 @@ function CaseWorkspace({ data, view }: { data: InvestigationCase; view: Workspac
 
   async function send() {
     if (sending || (!draft.trim() && !files.length)) return;
-    const userMessage: CaseMessage = { id: crypto.randomUUID(), role: 'user', text: draft.trim(), files };
+    const userMessage: CaseMessage = { id: randomId(), role: 'user', text: draft.trim(), files };
     setSending(true);
     setMessages(previous => [...previous, userMessage]);
     setDraft('');
@@ -168,7 +169,7 @@ function CaseWorkspace({ data, view }: { data: InvestigationCase; view: Workspac
         <form className="ws-compose" onSubmit={event => { event.preventDefault(); void send(); }}>
           <div className="ws-compose-field"><label htmlFor="follow-up" className="sr-only">Follow-up question</label><textarea ref={inputRef} id="follow-up" rows={2} placeholder="Ask a follow-up…" value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} />
             {!!files.length && <div className="ws-files">{files.map(file => <span key={file.id} title={file.name}><span>{file.name}</span><button type="button" aria-label={`Remove ${file.name}`} onClick={() => setFiles(previous => previous.filter(item => item.id !== file.id))}><Icon name="close" size={11} /></button></span>)}</div>}
-            <div className="ws-compose-actions"><input className="sr-only" ref={fileRef} type="file" multiple tabIndex={-1} aria-label="Attach files" onChange={event => { setFiles(previous => [...previous, ...Array.from(event.target.files ?? []).map(file => ({ id: crypto.randomUUID(), name: file.name, size: file.size }))]); event.target.value = ''; }} /><button type="button" aria-label="Attach files" title="Attach files" onClick={() => fileRef.current?.click()}><Icon name="attach" size={18} /></button><button type="submit" aria-label="Send" className="ws-send" disabled={sending || (!draft.trim() && !files.length)}><Icon name="send" size={18} /></button></div>
+            <div className="ws-compose-actions"><input className="sr-only" ref={fileRef} type="file" multiple tabIndex={-1} aria-label="Attach files" onChange={event => { setFiles(previous => [...previous, ...Array.from(event.target.files ?? []).map(file => ({ id: randomId(), name: file.name, size: file.size }))]); event.target.value = ''; }} /><button type="button" aria-label="Attach files" title="Attach files" onClick={() => fileRef.current?.click()}><Icon name="attach" size={18} /></button><button type="submit" aria-label="Send" className="ws-send" disabled={sending || (!draft.trim() && !files.length)}><Icon name="send" size={18} /></button></div>
           </div>
         </form>
       </aside>

@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const externalBaseURL = process.env.PLAYWRIGHT_BASE_URL;
+
 export default defineConfig({
   testDir: './tests',
   fullyParallel: true,
@@ -8,7 +10,7 @@ export default defineConfig({
   workers: process.env.CI ? 2 : 4,
   reporter: 'list',
   use: {
-    baseURL: 'http://127.0.0.1:5173',
+    baseURL: externalBaseURL || 'http://127.0.0.1:5173',
     reducedMotion: 'reduce',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
@@ -17,7 +19,7 @@ export default defineConfig({
     },
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } }],
-  webServer: {
+  webServer: externalBaseURL ? undefined : {
     command: 'npm run dev -- --port 5173 --strictPort',
     url: 'http://127.0.0.1:5173',
     reuseExistingServer: !process.env.CI,

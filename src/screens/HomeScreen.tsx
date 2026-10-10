@@ -2,9 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, DragEvent, FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import BrandLogo from '../components/BrandLogo';
+import { generateGraph, importGraphFile, recentGraphs } from '../services/graph-repository';
+import { GRAPH_LIMITS } from '../lib/graph-document';
+import type { EvidenceDocument } from '../types/graph';
 import './home.css';
 
-type Attachment = { id: string; name: string; size: number };
+type Attachment = { id: string; name: string; size: number; file: File };
 
 function Paperclip({ size = 16 }: { size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 11.5 12.6 18.9a5 5 0 0 1-7.1-7.1l7.8-7.8a3.3 3.3 0 0 1 4.7 4.7l-7.8 7.8a1.7 1.7 0 0 1-2.4-2.4l7.1-7.1" /></svg>;
@@ -27,11 +30,23 @@ export default function HomeScreen() {
   const [phase, setPhase] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 5 : 0);
   const [menu, setMenu] = useState<'cases' | 'account' | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [sourceText, setSourceText] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [aipReady, setAipReady] = useState(false);
+  const graphFileInput = useRef<HTMLInputElement>(null);
+  const generationController = useRef<AbortController | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const headerActions = useRef<HTMLDivElement>(null);
   const dragDepth = useRef(0);
   const fileSequence = useRef(0);
   const ready = question.trim().length > 0 || files.length > 0;
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch('/api/aip/status', { signal: controller.signal }).then(response => response.ok ? response.json() : null).then(result => setAipReady(result?.configured === true)).catch(() => {});
+    return () => { controller.abort(); generationController.current?.abort(); };
+  }, []);
 
   useEffect(() => {
     const preference = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -70,7 +85,12 @@ export default function HomeScreen() {
   }, [menu]);
 
   const addFiles = (incoming: FileList | File[]) => {
-    const added = Array.from(incoming).map(file => ({ id: `f${++fileSequence.current}`, name: file.name, size: file.size }));
+    setError('');
+    const candidates = Array.from(incoming);
+    if (files.length + candidates.length > GRAPH_LIMITS.documents) { setError('자료는 최대 10개까지 첨부할 수 있습니다.'); return; }
+    if (candidates.some(file => !/\.(txt|md|csv|json)$/i.test(file.name))) { setError('현재는 TXT, MD, CSV, JSON 자료를 지원합니다. PDF·사진은 텍스트로 변환한 뒤 첨부해주세요.'); return; }
+    if (candidates.some(file => file.size > GRAPH_LIMITS.jsonBytes)) { setError('파일은 각각 2MB 이하여야 합니다.'); return; }
+    const added = candidates.map(file => ({ id: `doc-${++fileSequence.current}`, name: file.name, size: file.size, file }));
     setFiles(previous => [...previous, ...added]);
   };
   const onFiles = (event: ChangeEvent<HTMLInputElement>) => {
@@ -83,15 +103,39 @@ export default function HomeScreen() {
     setDragging(false);
     if (event.dataTransfer.files.length) addFiles(event.dataTransfer.files);
   };
-  const startInvestigation = (event: FormEvent<HTMLFormElement>) => {
+  const openImportedGraph = async (file: File) => {
+    setBusy(true); setError('');
+    try { const graph = await importGraphFile(file); navigate(`/case/${graph.id}/board`); }
+    catch (error) { setError(error instanceof Error ? error.message : '그래프를 불러오지 못했습니다.'); }
+    finally { setBusy(false); }
+  };
+
+  const startInvestigation = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!ready) return;
+    if (!ready || busy) return;
+    setBusy(true); setError('');
     try {
-      sessionStorage.setItem('cluevia.case-draft', JSON.stringify({ question: question.trim(), files }));
-    } catch {
-      // The sample workspace remains available if browser storage is disabled.
-    }
-    navigate('/case/0143/board');
+      if (files.length === 1 && /\.json$/i.test(files[0].name)) {
+        const content = await files[0].file.text();
+        let candidate: unknown;
+        try { candidate = JSON.parse(content); } catch { /* Let AIP read non-graph evidence if configured. */ }
+        if (candidate && typeof candidate === 'object' && 'schemaVersion' in candidate) {
+          const graph = await importGraphFile(files[0].file); navigate(`/case/${graph.id}/board`); return;
+        }
+      }
+      if (!question.trim()) throw new Error('자료에서 확인하고 싶은 질문을 입력해주세요.');
+      const documents: EvidenceDocument[] = [];
+      if (sourceText.trim()) documents.push({ id: 'pasted-source', name: 'Pasted source text', text: sourceText.trim() });
+      for (const attachment of files) documents.push({ id: attachment.id, name: attachment.name, text: await attachment.file.text() });
+      if (!documents.length) throw new Error('분석할 자료를 첨부하거나 Source text에 붙여 넣어주세요. GFW 예제는 아래 버튼으로 바로 열 수 있습니다.');
+      if (documents.length > GRAPH_LIMITS.documents || documents.some(document => document.text.length > GRAPH_LIMITS.documentChars) || documents.reduce((total, document) => total + document.text.length, 0) > GRAPH_LIMITS.totalDocumentChars) throw new Error('자료는 최대 10개, 각 5만 자, 전체 15만 자 이내로 입력해주세요.');
+      if (!aipReady) throw new Error('AIP가 아직 연결되지 않았습니다. 환경변수를 설정하고 서버를 다시 실행하거나, 완성된 그래프 JSON / GFW 예제를 열어주세요.');
+      generationController.current = new AbortController();
+      const graph = await generateGraph({ question: question.trim(), documents }, generationController.current.signal);
+      navigate(`/case/${graph.id}/board`);
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) setError(error instanceof Error ? error.message : '그래프를 생성하지 못했습니다.');
+    } finally { setBusy(false); generationController.current = null; }
   };
 
   return (
@@ -116,7 +160,7 @@ export default function HomeScreen() {
         <div className="home-header-actions" ref={headerActions}>
           <button type="button" className="home-cases-button" aria-expanded={menu === 'cases'} aria-controls="home-cases-panel" onClick={() => setMenu(menu === 'cases' ? null : 'cases')}>MY CASES</button>
           <button type="button" className="home-account-button" aria-label="Account" aria-expanded={menu === 'account'} aria-controls="home-account-panel" onClick={() => setMenu(menu === 'account' ? null : 'account')}><span>JH</span></button>
-          {menu === 'cases' && <div className="home-header-panel" id="home-cases-panel"><span className="home-panel-caption">RECENT CASE</span><Link to="/case/0143/board" className="home-recent-case"><strong>Case 0143</strong><span>Open investigation workspace <span aria-hidden="true">↗</span></span></Link></div>}
+          {menu === 'cases' && <div className="home-header-panel" id="home-cases-panel"><span className="home-panel-caption">RECENT CASES</span><Link to="/case/gfw-galapagos/board" className="home-recent-case"><strong>GFW · Galápagos 2017</strong><span>공개 자료로 완성한 그래프 ↗</span></Link>{recentGraphs().map(graph => <Link key={graph.id} to={`/case/${graph.id}/board`} className="home-recent-case"><strong>{graph.title}</strong></Link>)}<Link to="/case/0143/board" className="home-recent-case"><span>Original design demo ↗</span></Link></div>}
           {menu === 'account' && <div className="home-header-panel home-account-panel" id="home-account-panel"><span className="home-panel-caption">YOUR WORKSPACE</span><strong>JH</strong><span>Personal workspace</span><button type="button" onClick={() => setMenu(null)}>Close account menu</button></div>}
         </div>
       </header>
@@ -128,21 +172,25 @@ export default function HomeScreen() {
             <div className="home-case-tab" aria-hidden="true"><span>NEW CASE</span></div>
             <div className="home-case-stamp" aria-hidden="true"><div>OPEN SOURCE</div><span>PUBLIC INFORMATION ONLY</span></div>
             <div className="home-folder-body">
-              <form className="home-paper" onSubmit={startInvestigation}>
+              <form className="home-paper" onSubmit={event => void startInvestigation(event)}>
                 <label htmlFor="home-question" className="home-question-label">What do you want to find out?</label>
                 <div className="home-question-field">
-                  <textarea id="home-question" className="home-question" rows={3} placeholder="e.g. Where and when was this photo taken?" value={question} onChange={event => setQuestion(event.target.value)} aria-describedby="home-question-hint" />
+                  <textarea id="home-question" className="home-question" rows={3} maxLength={2000} placeholder="e.g. Which vessels were connected, and what supports each connection?" value={question} onChange={event => setQuestion(event.target.value)} aria-describedby="home-question-hint" />
                   {files.length > 0 && <ul className="home-attachments" aria-label="Attached files">{files.map(file => <li className="home-attachment" key={file.id}><Paperclip size={14} /><span className="home-attachment-name" title={file.name}>{file.name}</span><span className="home-attachment-size">{formatSize(file.size)}</span><button type="button" aria-label={`Remove ${file.name}`} onClick={() => setFiles(previous => previous.filter(item => item.id !== file.id))}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17" /></svg></button></li>)}</ul>}
                   <div className="home-field-actions">
-                    <input className="home-file-input" type="file" multiple ref={fileInput} onChange={onFiles} aria-label="Attach files" tabIndex={-1} />
+                    <input className="home-file-input" type="file" accept=".txt,.md,.csv,.json" multiple ref={fileInput} onChange={onFiles} aria-label="Attach files" tabIndex={-1} />
                     <button type="button" className="home-attach-button" onClick={() => fileInput.current?.click()}><Paperclip /><span>Attach files</span></button>
-                    <button type="submit" className="home-start-button" disabled={!ready} title={!ready ? 'Type a question or attach a file first' : undefined}><span>START INVESTIGATION</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg></button>
+                    <button type="submit" className="home-start-button" disabled={!ready || busy} title={!ready ? 'Type a question or attach a file first' : undefined}><span>{busy ? 'BUILDING GRAPH…' : 'START INVESTIGATION'}</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg></button>
                   </div>
                 </div>
-                <p className="home-question-hint" id="home-question-hint">Ask in plain words. Add photos, documents or links as evidence.</p>
+                <p className="home-question-hint" id="home-question-hint">Ask in plain words. Add TXT, MD, CSV or JSON evidence.</p>
+                <details className="home-source-text"><summary>Paste source text <span>자료 직접 붙여넣기</span></summary><label htmlFor="source-text" className="home-visually-hidden">Source text</label><textarea id="source-text" rows={4} maxLength={GRAPH_LIMITS.documentChars} placeholder="질문의 근거가 되는 문서나 기사 내용을 붙여 넣으세요." value={sourceText} onChange={event => setSourceText(event.target.value)} /><p>입력한 자료는 그래프 생성 시 연결된 AIP로 전송됩니다.</p></details>
+                {error && <p className="home-intake-error" role="alert">{error}</p>}
+                {busy && <p className="home-intake-status" role="status">자료에서 객체와 관계를 추출하고 있습니다… <button type="button" onClick={() => generationController.current?.abort()}>취소</button></p>}
               </form>
             </div>
           </section>
+          <section className="home-graph-entry" aria-label="Open a completed graph"><div><span className="home-panel-caption">FROM EVIDENCE TO CONNECTIONS</span><p>완성된 그래프를 먼저 살펴보세요.</p></div><div className="home-graph-entry-actions"><Link to="/case/gfw-galapagos/board" aria-label="Open GFW example">GFW 공개 사례 <span aria-hidden="true">↗</span></Link><button type="button" disabled={busy} onClick={() => graphFileInput.current?.click()} aria-label="Import graph JSON">그래프 JSON 불러오기</button><input className="home-file-input" ref={graphFileInput} type="file" accept=".json,application/json" aria-label="Graph JSON file" onChange={event => { const file = event.target.files?.[0]; if (file) void openImportedGraph(file); event.target.value = ''; }} /></div><small>{aipReady ? '● AIP 설정됨 · 자료로 새 그래프 생성 요청 가능' : 'GFW 예제와 JSON 불러오기는 AIP 연결 없이 사용할 수 있습니다.'}</small></section>
         </div>
       </main>
       <footer className="home-footer">Public sources only · Every finding links back to its evidence</footer>

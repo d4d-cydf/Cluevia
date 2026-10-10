@@ -44,7 +44,7 @@ test('home requires a question or file and removes attached evidence', async ({ 
   await expect(start).toBeDisabled();
 });
 
-test('dropped files can start a case and preserve attachment metadata', async ({ page }) => {
+test('dropped evidence requires a question before generation', async ({ page }) => {
   await page.goto('/');
   const dataTransfer = await page.evaluateHandle(() => {
     const transfer = new DataTransfer();
@@ -54,19 +54,18 @@ test('dropped files can start a case and preserve attachment metadata', async ({
   await page.locator('.home-screen').dispatchEvent('drop', { dataTransfer });
   await expect(page.getByRole('list', { name: 'Attached files' })).toContainText('dropped.txt');
   await page.getByRole('button', { name: 'START INVESTIGATION' }).click();
-  await expect(page).toHaveURL(`${demoCase}/board`);
-  const draft = await page.evaluate(() => JSON.parse(sessionStorage.getItem('cluevia.case-draft') || 'null'));
-  expect(draft).toMatchObject({ question: '', files: [{ name: 'dropped.txt', size: 14 }] });
+  await expect(page).toHaveURL('/');
+  await expect(page.getByRole('alert')).toContainText('질문을 입력');
 });
 
-test('a question opens the board and appears in the conversation', async ({ page }) => {
+test('a question without evidence reports the missing source', async ({ page }) => {
   await page.goto('/');
   const question = 'What connections are shown in this example case?';
   await page.getByLabel('What do you want to find out?').fill(question);
   await page.getByRole('button', { name: 'START INVESTIGATION' }).click();
-  await expect(page).toHaveURL(`${demoCase}/board`);
-  await expect(page.getByText(question, { exact: true }).first()).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Investigation graph, board view' })).toBeVisible();
+  await expect(page).toHaveURL('/');
+  await expect(page.getByRole('alert')).toContainText('자료');
+  await expect(page.getByLabel('What do you want to find out?')).toHaveValue(question);
 });
 
 test('view tabs navigate between the graph layouts and timeline', async ({ page }) => {
@@ -158,8 +157,8 @@ test.describe('mobile layout', () => {
   test('home and all case views fit the page while controls remain usable', async ({ page }) => {
     await page.goto('/');
     await expectNoPageOverflow(page);
-    await page.getByLabel('What do you want to find out?').fill('Review the sample connections.');
-    await page.getByRole('button', { name: 'START INVESTIGATION' }).click();
+    await page.getByRole('button', { name: 'MY CASES', exact: true }).click();
+    await page.getByRole('link', { name: 'Original design demo ↗', exact: true }).click();
     await expect(page).toHaveURL(`${demoCase}/board`);
     await expectNoPageOverflow(page);
     await page.getByRole('button', { name: 'IP ADDRESS: 203.0.113.42', exact: true }).click();

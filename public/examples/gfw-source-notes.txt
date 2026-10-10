@@ -1,0 +1,18 @@
+GFW Galápagos case — source notes
+
+Source 1: GFW analysis, published 2017-08-28
+https://globalfishingwatch.org/impacts/policy-compliance/transhippment-reefer-illegal-sharks/
+
+Fu Yuan Yu Leng 999 was a Chinese refrigerated carrier. The analysis described its departure from Fuzhou and encounters with four longliners in the equatorial eastern Pacific, about 1,700 miles from the Galápagos: Fu Yuan Yu 7866, Fu Yuan Yu 7861, Fu Yuan Yu 7865, and Fu Yuan Yu 7862. The reported encounters occurred during 5–7 August 2017. Each involved approximately 12 hours in close proximity, around 30 metres apart. This pattern was consistent with possible transshipment; AIS proximity alone does not prove cargo transfer. The carrier was intercepted on 13 August 2017 in the Galápagos Marine Reserve. Do not infer that the sharks were caught inside the reserve or that each longliner committed an offence.
+
+Source 2: GFW retrospective
+https://globalfishingwatch.org/success-story/data-and-analysis-help-track-illegal-shark-fishing/
+
+The retrospective identifies the Ecuadorian navy as the intercepting authority and reports 7,639 sharks and 537 bags of fins aboard the carrier. It describes how Global Fishing Watch analysis helped connect the carrier with the longliners. These are reported findings about the historical case; source citations should remain attached to them.
+
+Source 3: GFW map methodology
+https://globalfishingwatch.org/our-map/
+
+The platform visualizes vessel activity from tracking data including AIS and VMS. Its encounter layer helps identify proximity between vessels; an encounter is an indicator for further investigation, not proof of a transfer.
+
+Scope: historical summary reviewed 2026-10-10, not a live AIS query. Graph layout positions are not geographic coordinates. Original articles remain the evidence; this file is a summary of them.
