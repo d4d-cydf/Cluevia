@@ -1,0 +1,149 @@
+.workspace { min-height: 100vh; display: flex; flex-direction: column; font-size: 16px; line-height: 1.5; }
+.ws-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 24px; padding: 8px 24px; border-bottom: 3px double var(--ink); min-height: 63px; }
+.ws-header-left { display: flex; align-items: center; gap: 14px; min-width: 0; flex: 1; }
+.ws-brand { display: flex; align-items: center; gap: 10px; text-decoration: none; white-space: nowrap; font-family: var(--mono); font-size: 14px; font-weight: 700; letter-spacing: .22em; }
+.ws-header-rule { height: 22px; width: 1px; background: #b9aa8a; flex-shrink: 0; }
+.ws-case-title { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.ws-case-title > span { font-family: var(--mono); font-size: 12px; letter-spacing: .14em; color: var(--muted); white-space: nowrap; }
+.ws-case-title strong { font-size: 16px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ws-header-actions { display: flex; align-items: center; gap: 4px; font-family: var(--mono); }
+.ws-header-actions > a, .ws-header-actions > button, .ws-menu summary { display: flex; align-items: center; justify-content: center; gap: 6px; height: 44px; padding: 0 12px; border: 0; border-radius: 4px; background: transparent; font-size: 13px; letter-spacing: .12em; text-decoration: none; color: var(--ink); cursor: pointer; white-space: nowrap; }
+.ws-header-actions button:hover, .ws-header-actions a:hover, .ws-menu summary:hover { background: #d8c8a244; }
+.ws-demo-label { font-size: 9px; padding: 1px 5px; border: 1px solid #b9aa8a; border-radius: 2px; letter-spacing: .12em; color: var(--muted); }
+.ws-menu { position: relative; }
+.ws-menu summary { list-style: none; }
+.ws-menu summary::-webkit-details-marker { display: none; }
+.ws-menu > div { position: absolute; right: 0; top: 48px; z-index: 30; width: 274px; padding: 18px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); box-shadow: 0 10px 25px #3c2d1424; display: flex; flex-direction: column; gap: 12px; font-size: 12px; }
+.ws-menu > div a { text-decoration: none; }
+.ws-menu small { color: var(--muted); }
+.ws-account summary { width: 44px; padding: 0; }
+.ws-account summary > span { width: 32px; height: 32px; display: grid; place-items: center; border: 1.5px solid var(--ink); border-radius: 50%; font-size: 12px; font-weight: 700; letter-spacing: 0; }
+.ws-body { flex: 1; display: flex; min-width: 0; }
+.ws-conversation { flex: 0 0 25%; width: 25%; min-width: 300px; display: flex; flex-direction: column; background: var(--paper); border-right: 1px solid var(--rule); }
+.ws-thread { flex: 1; display: flex; flex-direction: column; gap: 18px; padding: 22px 20px 14px; overflow-y: auto; max-height: calc(100dvh - 205px); min-height: 598px; scrollbar-width: thin; scrollbar-color: #b9aa8a var(--paper); }
+.ws-user-message { align-self: flex-end; max-width: 90%; padding: 10px 14px; border: 1px solid #dccfb6; border-radius: 10px 10px 2px 10px; background: #efe6d3; font-size: 15px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ws-message-file { display: flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11px; margin-top: 6px; overflow-wrap: anywhere; }
+.ws-assistant { display: flex; flex-direction: column; gap: 12px; }
+.ws-assistant-label { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: .16em; color: var(--muted); }
+.ws-answer { display: flex; flex-direction: column; gap: 12px; }
+.ws-answer > p { margin: 0; font-size: 15.5px; line-height: 1.5; }
+.ws-answer strong { font-weight: 600; }
+.ws-answer ol { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
+.ws-answer li { display: flex; gap: 10px; font-size: 14.5px; line-height: 1.5; }
+.ws-answer li > span { flex: 0 0 14px; padding-top: 1px; font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--muted); }
+.ws-citation { display: inline-flex; align-items: center; height: 22px; padding: 0 6px; border: 1px solid #cdbf9f; border-radius: 3px; background: #f6f1e6; color: var(--ink); font-family: var(--mono); font-size: 11px; font-weight: 700; vertical-align: 1px; }
+.ws-citation.is-active { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.ws-answer .ws-attribution { padding: 10px 12px; border: 1px dashed var(--rule); border-radius: 6px; font-size: 14px; font-style: italic; line-height: 1.45; color: var(--muted); }
+.ws-answer .ws-preview-note { border-left: 2px solid var(--rule); padding-left: 9px; color: var(--muted); font-size: 12px; }
+.ws-answer-meta { display: flex; flex-direction: column; gap: 4px; font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+.ws-building { padding: 10px 12px 8px; border: 1px solid #dccfb6; border-radius: 6px; background: #fffdf8; }
+.ws-building > span { display: block; font-size: 11px; font-weight: 700; margin-bottom: 4px; color: var(--muted); }
+.ws-build-step { display: flex; align-items: center; gap: 10px; min-height: 28px; font-size: 14px; line-height: 1.35; color: #8b806b; }
+.ws-build-step > span { flex: 0 0 14px; display: grid; place-items: center; }
+.ws-build-step i { width: 9px; height: 9px; border: 1.5px solid #b9aa8a; border-radius: 50%; }
+.ws-build-step.is-active, .ws-build-step.is-done { color: var(--ink); }
+.ws-build-step.is-active i { background: var(--accent); border-color: var(--accent); animation: ws-pulse 1s ease-in-out infinite; }
+@keyframes ws-pulse { 50% { opacity: .25; } }
+.ws-reply { font-size: 14px; }
+.ws-reply p { margin: 8px 0 0; white-space: pre-wrap; }
+.ws-user-message p { margin: 0; }
+.ws-compose { margin-top: auto; padding: 12px 16px 16px; border-top: 1px solid #e4d9c3; }
+.ws-compose-field { border: 1.5px solid #dccfb6; border-radius: 8px; background: #fff; transition: border-color 140ms, box-shadow 140ms; }
+.ws-compose-field:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px #b8321a12; }
+.ws-compose textarea { display: block; width: 100%; padding: 12px 14px 4px; border: 0; border-radius: 8px 8px 0 0; outline: none; resize: none; background: transparent; color: var(--ink); caret-color: var(--accent); font-size: 15.5px; line-height: 1.45; }
+.ws-compose textarea::placeholder { color: #7a6f5c; }
+.ws-compose-actions { display: flex; align-items: center; justify-content: space-between; padding: 2px 8px 8px; }
+.ws-compose-actions button { display: grid; place-items: center; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--muted); }
+.ws-compose-actions .ws-send { background: var(--ink); color: var(--paper); }
+.ws-send:disabled { opacity: .35; }
+.ws-files { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 10px 4px; }
+.ws-files > span { display: flex; align-items: center; max-width: 100%; gap: 6px; height: 30px; padding: 0 2px 0 8px; border: 1px solid #dccfb6; border-radius: 4px; background: #f6f1e6; font-size: 13px; }
+.ws-files > span > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-files button { display: grid; place-items: center; flex: 0 0 26px; height: 26px; padding: 0; border: 0; background: transparent; }
+.ws-stage { position: relative; flex: 1; min-width: 0; min-height: 740px; height: max(740px, calc(100dvh - 63px)); overflow: hidden; background: #e6dcc6; }
+.ws-stage--timeline { height: max(840px, calc(100dvh - 63px)); min-height: 840px; }
+.ws-toolbar { position: absolute; left: 16px; right: 16px; top: 12px; z-index: 8; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; pointer-events: none; }
+.ws-toolbar nav { pointer-events: auto; display: flex; gap: 2px; padding: 3px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); }
+.ws-toolbar nav a { display: inline-flex; align-items: center; height: 36px; padding: 0 14px; border-radius: 4px; font-family: var(--mono); font-size: 12.5px; font-weight: 700; letter-spacing: .1em; text-decoration: none; }
+.ws-toolbar nav a.active { color: var(--paper); background: var(--ink); }
+.ws-graph-tools { pointer-events: auto; display: flex; align-items: center; gap: 6px; padding: 3px 4px 3px 12px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.ws-graph-tools button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 36px; padding: 0 8px; border: 0; border-radius: 4px; background: transparent; font: inherit; color: var(--ink); white-space: nowrap; }
+.ws-graph-tools button:hover { background: #efe6d3; }
+.ws-count { white-space: nowrap; }
+.ws-tool-rule { width: 1px; height: 20px; background: #dccfb6; }
+.ws-path-swatch { width: 18px; height: 0; border-top: 3px solid var(--accent); }
+.ws-path-swatch.is-off { border-color: #b9aa8a; }
+.ws-object-inspector, .ws-event-inspector { position: absolute; right: 16px; bottom: 16px; z-index: 6; padding: 14px 16px 12px; border: 1px solid var(--rule); border-radius: 6px; background: #fffdf8; box-shadow: 0 14px 34px #3c2d142e; }
+.ws-object-inspector { width: 300px; max-width: calc(100% - 32px); }
+.ws-inspector-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ws-inspector-meta { display: flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 10.5px; font-weight: 700; letter-spacing: .12em; color: var(--muted); }
+.ws-inspector-meta i { flex: 0 0 8px; width: 8px; height: 8px; border-radius: 2px; }
+.ws-confidence { padding: 0 6px; border: 1.5px solid #2f6b3a; border-radius: 3px; color: #2f6b3a; font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: .12em; line-height: 16px; }
+.ws-confidence.is-inferred { color: #a67510; border-color: #a67510; }
+.ws-object-inspector h2 { margin: 6px 0 0; font-family: var(--mono); font-size: 16px; line-height: 1.3; overflow-wrap: anywhere; }
+.ws-object-inspector p { margin: 4px 0 0; font-size: 14px; line-height: 1.45; }
+.ws-object-inspector h3, .ws-event-inspector h3 { margin: 10px 0 0; font-family: var(--mono); font-size: 10.5px; font-weight: 700; letter-spacing: .14em; color: var(--muted); }
+.ws-object-inspector dl { margin: 4px 0 0; border-top: 1px solid #efe6d3; font-family: var(--mono); font-size: 11.5px; }
+.ws-object-inspector dl > div { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; border-bottom: 1px solid #efe6d3; }
+.ws-object-inspector dt { color: var(--muted); }
+.ws-object-inspector dd { margin: 0; text-align: right; }
+.ws-action-buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.ws-action-buttons button, .ws-action-buttons a { display: inline-flex; align-items: center; justify-content: center; min-height: 34px; padding: 5px 10px; border: 1px solid var(--ink); border-radius: 4px; background: transparent; color: var(--ink); font-family: var(--mono); font-size: 11.5px; font-weight: 700; line-height: 1.2; text-decoration: none; }
+.ws-action-buttons .is-queued { background: var(--ink); color: var(--paper); }
+.ws-action-buttons .ws-secondary, .ws-action-buttons a { border-color: var(--rule); font-weight: 400; }
+.ws-action-note { margin-top: 6px; font-family: var(--mono); font-size: 10.5px; line-height: 1.4; color: var(--muted); }
+.ws-event-inspector { left: max(24%, 290px); display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px 28px; padding: 14px 18px; }
+.ws-event-inspector > div:first-child { flex: 1 1 290px; min-width: 0; }
+.ws-event-inspector h2 { margin: 4px 0 0; font-size: 20px; font-weight: 600; line-height: 1.3; }
+.ws-event-inspector p { margin: 2px 0 0; font-size: 14.5px; line-height: 1.45; }
+.ws-event-facts { margin-top: 6px; font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+.ws-event-actions { flex: 0 1 320px; min-width: 0; }
+.ws-event-actions h3 { margin-top: 0; }
+.ws-toast { position: fixed; bottom: 22px; left: 50%; z-index: 50; width: max-content; max-width: calc(100% - 32px); padding: 10px 16px; border: 1px solid var(--rule); border-radius: 6px; background: var(--ink); color: var(--paper); font-family: var(--mono); font-size: 12px; box-shadow: 0 8px 25px #3c2d142e; pointer-events: none; transform: translate(-50%, 20px); opacity: 0; transition: opacity .2s, transform .2s; }
+.ws-toast.is-visible { opacity: 1; transform: translate(-50%, 0); }
+@media (max-width: 1300px) {
+  .ws-header-left { flex-wrap: wrap; gap: 4px 12px; }
+  .ws-case-title { flex-basis: 100%; }
+  .ws-header-rule { display: none; }
+  .ws-count { display: none; }
+  .ws-graph-tools > .ws-tool-rule:first-of-type { display: none; }
+}
+@media (max-width: 900px) {
+  .ws-header { padding: 8px 16px; }
+  .ws-header-actions { gap: 0; }
+  .ws-header-actions > a, .ws-header-actions > button, .ws-menu summary { padding-inline: 8px; }
+  .ws-demo-label { display: none; }
+  .ws-body { flex-direction: column; }
+  .ws-conversation { width: 100%; min-width: 0; border-right: 0; border-bottom: 1px solid var(--rule); }
+  .ws-thread { min-height: 0; max-height: 470px; padding: 20px; }
+  .ws-assistant, .ws-reply { max-width: 680px; }
+  .ws-user-message { max-width: min(90%, 580px); }
+  .ws-compose { padding: 12px 20px 16px; }
+  .ws-compose textarea { min-height: 64px; }
+  .ws-stage { flex: none; width: 100%; height: auto; min-height: 0; }
+  .ws-stage > .graph-scroll { height: 780px; }
+  .ws-object-inspector, .ws-event-inspector { position: relative; left: auto; right: auto; bottom: auto; width: auto; max-width: none; margin: 0 16px 16px; }
+  .ws-event-inspector { gap: 12px 28px; }
+}
+@media (max-width: 600px) {
+  .ws-header { padding: 10px 14px 6px; gap: 6px; }
+  .ws-header-left { flex-basis: 100%; }
+  .ws-header-actions { width: 100%; justify-content: space-between; }
+  .ws-header-actions > a, .ws-header-actions > button, .ws-menu summary { font-size: 11px; }
+  .ws-case-title strong { font-size: 12px; }
+  .ws-case-title > span { font-size: 10px; }
+  .ws-thread { padding: 18px 16px; max-height: 420px; }
+  .ws-compose { padding: 12px 16px; }
+  .ws-toolbar { left: 12px; right: 12px; gap: 7px; }
+  .ws-toolbar nav { width: 100%; }
+  .ws-toolbar nav a { flex: 1; justify-content: center; padding-inline: 8px; }
+  .ws-graph-tools { padding-left: 4px; }
+  .ws-graph-tools button { font-size: 11px; }
+  .ws-object-inspector { margin: 0 12px 16px; }
+  .ws-event-inspector { margin: 0 12px 16px; gap: 8px; padding: 12px; }
+  .ws-event-inspector h2 { font-size: 18px; }
+  .ws-event-inspector p { font-size: 12.5px; }
+  .ws-event-inspector .ws-inspector-meta { font-size: 9px; }
+  .ws-event-facts { font-size: 10px; }
+  .ws-menu > div { width: min(260px, calc(100vw - 32px)); }
+}

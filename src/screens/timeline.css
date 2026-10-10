@@ -1,0 +1,345 @@
+.timeline-frame {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 840px;
+}
+
+.timeline-scroll {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 840px;
+  overflow-x: auto;
+  background: #fbf8f1;
+  scrollbar-color: #b9aa8a #f6f0e3;
+  scrollbar-width: thin;
+}
+
+.timeline-canvas {
+  position: relative;
+  min-width: 980px;
+  height: 100%;
+  min-height: 840px;
+  overflow: hidden;
+  color: #1e1b16;
+  font-family: 'Courier Prime', 'Courier New', monospace;
+}
+
+.timeline-stripe {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 42px;
+}
+
+.timeline-campaign {
+  position: absolute;
+  left: 34.2%;
+  width: 60.3%;
+  top: 226px;
+  height: 394px;
+  background: rgba(184, 50, 26, .06);
+  border-left: 1px solid rgba(184, 50, 26, .35);
+  transition: opacity 600ms ease;
+}
+
+.timeline-campaign-label {
+  position: absolute;
+  left: calc(34.2% + 8px);
+  top: 226px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .14em;
+  line-height: 16px;
+  color: #b8321a;
+  transition: opacity 600ms ease;
+}
+
+.timeline-tick-line {
+  position: absolute;
+  top: 112px;
+  height: 508px;
+  width: 0;
+  border-left: 1px solid #e4d9c3;
+}
+
+.timeline-tick-label {
+  position: absolute;
+  top: 202px;
+  transform: translateX(-50%);
+  font-size: 10.5px;
+  color: #5e5546;
+  white-space: nowrap;
+}
+
+.timeline-today-line {
+  position: absolute;
+  left: 94.5%;
+  top: 104px;
+  height: 516px;
+  width: 0;
+  border-left: 1.5px dashed #1e1b16;
+}
+
+.timeline-today-label {
+  position: absolute;
+  left: 94.5%;
+  top: 86px;
+  transform: translateX(-50%);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .14em;
+}
+
+.timeline-payments-heading {
+  position: absolute;
+  left: 20px;
+  top: 112px;
+  width: calc(22% - 24px);
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #5e5546;
+}
+
+.timeline-payments-heading strong {
+  margin-bottom: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .14em;
+  color: #3e372c;
+}
+
+.timeline-payments-baseline {
+  position: absolute;
+  left: 24%;
+  width: 70%;
+  top: 196px;
+  height: 0;
+  border-top: 1px solid #b9aa8a;
+}
+
+.timeline-payment {
+  position: absolute;
+  top: 112px;
+  width: 30px;
+  height: 84px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  border-radius: 4px;
+  cursor: default;
+}
+
+.timeline-payment > span {
+  width: 18px;
+  border-radius: 4px 4px 0 0;
+  background: #1baf7a;
+  transition: height 520ms cubic-bezier(.2, .8, .2, 1);
+}
+
+.timeline-payment-peak {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: 11px;
+  font-weight: 700;
+  transition: opacity 400ms ease 700ms;
+}
+
+.timeline-payment-tooltip {
+  position: absolute;
+  z-index: 6;
+  transform: translateX(-50%);
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: #1e1b16;
+  color: #fbf8f1;
+  font-size: 11.5px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.timeline-row-label {
+  position: absolute;
+  left: 20px;
+  width: calc(22% - 24px);
+  height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.timeline-row-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.timeline-row-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timeline-lead-badge {
+  flex: none;
+  padding: 0 4px;
+  border: 1.5px solid #b8321a;
+  border-radius: 3px;
+  color: #b8321a;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  line-height: 13px;
+}
+
+.timeline-connector {
+  position: absolute;
+  width: 0;
+  border-left: 1.5px dotted #7a6f5c;
+  transform: translateX(-50%);
+}
+
+.timeline-connector.is-answer-path {
+  border-left: 2px solid #b8321a;
+}
+
+.timeline-event {
+  position: absolute;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  min-width: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #3e372c;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transform: translate(-14px, -50%);
+  transition: opacity 300ms ease;
+}
+
+.timeline-marker-position {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  transition: transform 420ms cubic-bezier(.2, .8, .2, 1);
+}
+
+.timeline-marker {
+  display: block;
+  box-sizing: border-box;
+  border-radius: 50%;
+  transition: width 140ms ease, height 140ms ease, box-shadow 140ms ease;
+}
+
+.timeline-event-label {
+  margin-left: 25px;
+  padding: 0 3px;
+  border-radius: 2px;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 18px;
+  white-space: nowrap;
+  transition: opacity 360ms ease;
+}
+
+.timeline-event.is-selected .timeline-event-label {
+  font-weight: 700;
+}
+
+.timeline-event:hover .timeline-event-label {
+  color: #1e1b16;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.timeline-event:focus-visible,
+.timeline-payment:focus-visible {
+  outline: 2px solid #b8321a;
+  outline-offset: 4px;
+}
+
+.timeline-legend {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  z-index: 5;
+  display: grid;
+  grid-template-columns: repeat(2, auto);
+  gap: 6px 20px;
+  padding: 10px 12px;
+  border: 1px solid #cdbf9f;
+  border-radius: 6px;
+  background: rgba(251, 248, 241, .95);
+  font-family: 'Courier Prime', 'Courier New', monospace;
+  font-size: 11px;
+  color: #3e372c;
+}
+
+.timeline-legend > span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.timeline-legend i {
+  flex: none;
+  display: block;
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.timeline-legend .timeline-legend-inferred {
+  background: #fbf8f1;
+  border: 2px dashed #2a78d6;
+}
+
+.timeline-legend .timeline-legend-answer {
+  background: #1baf7a;
+  box-shadow: 0 0 0 2px #fbf8f1, 0 0 0 4px #b8321a;
+}
+
+.timeline-legend .timeline-legend-connector {
+  width: 18px;
+  height: 0;
+  border-top: 1.5px dotted #7a6f5c;
+  border-radius: 0;
+}
+
+@media (max-width: 900px) {
+  .timeline-frame {
+    height: 780px;
+    min-height: 780px;
+  }
+
+  .timeline-scroll,
+  .timeline-canvas {
+    min-height: 780px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .timeline-canvas *,
+  .timeline-canvas *::before,
+  .timeline-canvas *::after {
+    transition: none !important;
+  }
+}
