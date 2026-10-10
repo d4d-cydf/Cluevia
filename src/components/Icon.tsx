@@ -13,7 +13,3 @@ const paths = {
 export function Icon({ name, size = 16, ...props }: SVGProps<SVGSVGElement> & { name: keyof typeof paths; size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}><path d={paths[name]} /></svg>;
 }
-
-export function BrandMark({ size = 22 }: { size?: number }) {
-  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5.675A7 7 0 0 1 12 18.325A7 7 0 0 1 12 5.675Z" fill="#B8321A" /><circle cx="9" cy="12" r="7" stroke="#1E1B16" strokeWidth="1.5" /><circle cx="15" cy="12" r="7" stroke="#1E1B16" strokeWidth="1.5" /></svg>;
-}

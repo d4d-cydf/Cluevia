@@ -100,6 +100,15 @@ button, a, input, textarea { -webkit-tap-highlight-color: transparent; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; }
 a { color: inherit; }
+.brand-logo { display: inline-flex; flex: none; align-items: center; gap: 7.6px; height: 24.32px; }
+.brand-logo > .brand-mark { width: 24.32px; height: 24.32px; }
+.brand-wordmark { display: block; flex: none; width: 66.88px; height: 24.32px; }
+.brand-mark { display: block; flex: none; }
+@media (max-width: 600px) {
+  .brand-logo { gap: 6.08px; height: 21.28px; }
+  .brand-logo > .brand-mark { width: 21.28px; height: 21.28px; }
+  .brand-wordmark { width: 58.52px; height: 21.28px; }
+}
 button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
 ::selection { background: #d8c8a2; color: var(--ink); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }

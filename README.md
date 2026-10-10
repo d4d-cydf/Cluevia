@@ -13,6 +13,13 @@ npm run dev
 
 터미널에 표시되는 주소(기본 `http://localhost:5173`)를 엽니다.
 
+Windows PowerShell과 WSL은 서로 다른 실행 파일을 설치합니다. 실행 환경을 바꿨거나 `'vite' is not recognized` 오류가 나면, 실행할 터미널에서 다음 명령으로 의존성을 다시 설치합니다. `package-lock.json`은 유지합니다.
+
+```powershell
+npm ci --include=dev
+npm run dev
+```
+
 ```bash
 npm run build    # TypeScript 검사 + 배포용 dist 생성
 npm run preview  # 빌드 결과 미리보기
@@ -46,6 +53,7 @@ Besley / Courier Prime 서체, 종이색 배경, 사건철, 붉은 강조색과 
 
 ```text
 src/
+  components/BrandLogo.tsx     Cluevia 전체 로고·심벌
   components/Icon.tsx          공통 아이콘
   mock/case-0143.ts            원본의 객체 12개, 링크 12개, 이벤트 17개
   types/case.ts                데이터 타입과 CaseRepository 인터페이스

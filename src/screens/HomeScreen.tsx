@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, DragEvent, FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import BrandLogo from '../components/BrandLogo';
 import './home.css';
 
 type Attachment = { id: string; name: string; size: number };
@@ -109,9 +110,8 @@ export default function HomeScreen() {
     }} onDrop={onDrop}>
       <GraphBackdrop />
       <header className="home-header">
-        <Link to="/" className="home-brand" aria-label="OSINT Copilot home">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5.675A7 7 0 0 1 12 18.325A7 7 0 0 1 12 5.675Z" fill="#B8321A" /><circle cx="9" cy="12" r="7" stroke="currentColor" strokeWidth="1.5" /><circle cx="15" cy="12" r="7" stroke="currentColor" strokeWidth="1.5" /></svg>
-          <span>OSINT COPILOT</span>
+        <Link to="/" className="home-brand" aria-label="Cluevia home">
+          <BrandLogo />
         </Link>
         <div className="home-header-actions" ref={headerActions}>
           <button type="button" className="home-cases-button" aria-expanded={menu === 'cases'} aria-controls="home-cases-panel" onClick={() => setMenu(menu === 'cases' ? null : 'cases')}>MY CASES</button>
