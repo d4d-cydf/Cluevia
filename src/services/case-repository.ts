@@ -37,7 +37,7 @@ export const caseRepository: CaseRepository = {
       role: 'assistant',
       text: files.length
         ? 'Added your question and file names to this demo case. Files have not been uploaded or analyzed. Live research is not available in this preview.'
-        : 'Your question is saved in this demo case. Explore the linked evidence on the board or timeline. Live research is not available in this preview.',
+        : 'Your question is saved in this demo case. Explore the linked evidence in Overview or on the board. Live research is not available in this preview.',
     };
     return message;
   },

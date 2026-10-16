@@ -1,0 +1,79 @@
+---
+title: "HTTP API"
+description: "当前产品服务器的分析澄清、上传、任务、案例、图与本体 API。"
+---
+
+产品 API 位于 `server/product-api.ts`，接入开发服务器、预览及 `npm start`。所有路径均位于与应用相同主机的 `/api/` 下。
+
+## 连接和身份验证 [#연결과-인증]
+
+使用 `GET /api/system/status` 检查连接、引擎和存储状态。若设置了工作区密钥，请在请求中使用 `Authorization: Bearer <워크스페이스 키>`。没有密钥时，仅实际的 loopback 连接可以使用 API。
+
+目前的应用程序是一个共享工作空间。 我们不提供 API 为每个用户分开帐户，权限和数据。
+
+## 检查分析和上传数据 [#분석-확인과-자료-업로드]
+
+| 要求 | 行动 |
+| --- | --- |
+| `POST /api/analysis/clarify` | 问题，预览数据，查看之前的答案，返回问题或分析范围。 没有文件上传/任务创建 |
+| `POST /api/documents/upload` | 上传原始文件体 → `201 {document}`  |
+| `GET /api/documents/:id` | 上传数据的大小和部分信息 |
+
+上传使用 `Content-Type: application/octet-stream` 与 `X-File-Name: encodeURIComponent(name)`。资料须为 UTF-8 文本。默认不设置文件大小上限，可通过 `CLUEVIA_MAX_UPLOAD_MB` 限制。
+
+## 创建和查看任务 [#작업-생성과-조회]
+
+```json
+{
+  "question": "자료에 등장하는 객체와 관계를 정리해줘",
+  "documents": [],
+  "uploadIds": ["upload-업로드응답의ID"]
+}
+```
+
+将上述请求结构中的上传 ID 替换为实际上传响应返回的值。少量内联资料可通过 `documents: [{id,name,text,url?}]` 提交。可选字段 `analysisBrief` 用于提交已确认的目的、范围、结果与回答。
+
+| 要求 | 行动 |
+| --- | --- |
+| `POST /api/jobs` | 登记工作 → `202 {job}`  |
+| `GET /api/jobs`, `GET /api/jobs/:id` | 任务列表和状态 |
+| `POST /api/jobs/:id/cancel` | 取消正在执行的分析，保留已保存结果 |
+| `POST /api/jobs/:id/resume` | 恢复未完成区段 |
+| `DELETE /api/jobs/:id` | 删除案件和相关记录 |
+
+内联文档每份不超过 50,000 字符，总计不超过 150,000 字符。内联资料与上传资料合计最多 10 份；运行与等待任务合计最多 5 个，任务按顺序执行。
+
+## 综合案例和证据 [#통합-케이스와-근거]
+
+| 要求 | 行动 |
+| --- | --- |
+| `GET /api/jobs/:id/case` | 综合图表，历史列表，证据连接和属性差异 |
+| `GET /api/jobs/:id/records/:number` | 图表，证据和原始文字记录的第一页 |
+| `GET /api/jobs/:id/records/:number/document?id=...&offset=...` | 属于记录的原页 |
+| `GET /api/jobs/:id/decisions` | 根据数据的判断细节 |
+| `GET /api/jobs/:id/chat`, `POST /api/jobs/:id/chat` | 案例谈话查询/问题 |
+| `POST /api/jobs/:id/claims/:edgeId/review` | 保存审查状态和关系主张的注释 |
+
+原文每页包含 12,000 字符。原文偏移与引文位置以 UTF-16 代码单元计数。对话 POST 请求传入 `question`，并可附加 `selection: {kind,id}`。
+
+## 图与本体 [#그래프와-온톨로지]
+
+| 要求 | 行动 |
+| --- | --- |
+| `GET /api/graphs`, `GET /api/graphs/:id` | 保存的图表列表/内容 |
+| `GET /api/graphs/:id/collection` | 同项任务的子图列表 |
+| `POST /api/graphs/import` |  `{graph}` 完成 JSON 验证和存储 |
+| `DELETE /api/graphs/:id` | 删除独立图表。 分析的图表使用案例删除 |
+| `GET /api/ontology` | 本体列表与统计 |
+| `GET /api/ontology/definitions/:id` | 定义，版本，类型，属性，关系，处理政策 |
+| `GET /api/ontology/entities?q=&type=&ontologyId=` | 对象搜索 |
+| `GET /api/ontology/entities/:id` | 主张，关系，对象的基础 |
+| `POST /api/ontology/entities/:id/identity` | 保存与另一对象是否相同的审查结果 |
+
+## 错误响应 [#오류-응답]
+
+无效输入返回 400，认证失败返回 401，跨站请求限制返回 403，资源不存在返回 404。尝试单独删除分析所属图时返回 409；上传超限返回 413；不支持的上传内容类型返回 415；队列或并发请求超限返回 429。
+
+在任务登记后出现的分析错误也应在任务状态中检查。 取得成功 HTTP 任务登记并不意味着成功的整体分析。
+
+请参见 [server/product-api.ts](https://github.com/d4d-cydf/Cluevia/blob/main/server/product-api.ts) 为准确的文本和状态处理，以及 [src/services/api-client.ts](https://github.com/d4d-cydf/Cluevia/blob/main/src/services/api-client.ts) 为浏览器连接。

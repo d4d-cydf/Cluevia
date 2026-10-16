@@ -1,0 +1,169 @@
+---
+title: "Source Provenance and Confidence"
+description: "Define termination rules for 1-7 lineage tracing and 1-8 confidence aggregations and conditions for handling duplicates, dependencies, and unknown values."
+---
+
+confidence In aggregation, the validity of the calculation formula and the validity of the input values must be distinguished. Even if the equation assuming independence is mathematically correct, if source depend on each other or the input coefficients have not been empirically corrected, the results cannot be interpreted as the true probability of the conclusion. This section describes the tracking rules of source provenance and the calculation conditions of support score. Scores and operational thresholds for each grade are items that require separate verification and policy confirmation.
+
+## Definition of confidence-related variables [#신뢰도-관련-변수의-정의]
+
+| value | Symbol/range | meaning |
+| --- | --- | --- |
+| source coefficient | `r_source`, 0–1 or null | source Policy coefficient for confirmation/data type |
+| leaf confidence | `p_leaf`, 0–1 or null | Degree of support for a specific data–claim connection |
+| Likelihood ratio of additional data | `LR`, 0 or greater or null | How much new data change the relative support of a hypothesis when existing data are known |
+
+A source coefficient of 1.0 is not the same as a likelihood ratio of 1. A likelihood ratio may exceed 1 but cannot be negative. A source coefficient of 1.0 does not establish that every statement in the material is certainly true.
+
+## 1-7 · Storage unit of source provenance [#1-7--출처-계보의-저장-단위]
+
+For each material, the publishing entity, original URL, citation URL, publication time, acquisition time, and content hash are recorded. Leave the following in the citation link:
+
+```ts
+type ProvenanceEdge = {
+  fromEvidenceId: string;
+  toSourceId: string;
+  relation: 'CITES' | 'REPRINTS' | 'DERIVED_FROM' | 'ORIGINAL_RECORD';
+  supportingLocator: string;
+  status: 'VERIFIED' | 'UNVERIFIED';
+};
+```
+
+The URL proposed by LLM is a candidate, and the citation relationship and content are checked in the actual original text and then displayed as a verified genealogy. Even articles from different domains may be part of the same series of observations if they reuse the same news agency, announcement, or original record.
+
+<ResearchDiagram kind="provenance" number="C1" />
+
+## Meaning of likelihood ratio 1 [#우도비-1의-의미]
+
+If the existing data is `E_seen`, the new candidate is `E_new`, and the target hypothesis is `H`, the conditional likelihood ratio is as follows.
+
+<Equation number="C1" label={"likelihood ratio of additional data conditional on existing observations"} tex={String.raw`\mathrm{LR}_{\mathrm{new}}=\frac{P(E_{\mathrm{new}}\mid H,E_{\mathrm{seen}})}{P(E_{\mathrm{new}}\mid\neg H,E_{\mathrm{seen}})}`} />
+
+<Equation number="C2" label={"Odds update in the same model"} tex={String.raw`\begin{aligned}O(H\mid E_{\mathrm{seen}},E_{\mathrm{new}})&=O(H\mid E_{\mathrm{seen}})\,\mathrm{LR}_{\mathrm{new}}\\P(H\mid E_{\mathrm{seen}},E_{\mathrm{new}})&=\frac{p\,\mathrm{LR}_{\mathrm{new}}}{1-p+p\,\mathrm{LR}_{\mathrm{new}}}\end{aligned}`} />
+
+Here, p=P(H | E_seen), which is the conditional prior probability just before observing new data.
+
+<ResearchPlot kind="likelihood-update" number="C2" />
+
+NOT H in the above expression is a mathematical alternative hypothesis and is distinguished from the NOT_SUPPORT operator of the tree.
+
+If LR=1, the odds of the hypothesis do not change in this comparison model. `LR > 1` is the support direction, and `LR < 1` is the opposite direction. This is the interpretation followed in updating Bayes odds, and the model for calculating LR and uncertainty must also be recorded. [NIST's likelihood ratio and assumptions discussed](https://nvlpubs.nist.gov/nistpubs/jres/122/jres.122.027.pdf).
+
+**Reification rule:** If a recited replica simply repeats a known observation, it is not counted as new independent evidence. However, it is not recorded that the numerical value LR=1 was statistically measured solely through the LLM output, which “looks like a duplicate.” Distinguish between `ESTIMATED_LR` calculated using a model and `NO_NEW_INFORMATION` judgment, which contains no new information.
+
+If the denominator is zero, or no model is available to estimate both probabilities, LR is `null`. Do not substitute an LLM confidence value for LR, or replace an unknown value with 1. Define floating-point comparison tolerances in the policy without disguising substantive uncertainty as numerical error.
+
+## Lineage tracing repetition rules [#계보-추적-반복-규칙]
+
+1. Preserve current data and list source or citation URL candidates.
+2. Secure the candidate original text and check citation relationships, originality, and content differences. A read failure is recorded as a failure status.
+3. Evaluate conditional LR when possible. A determination of no new information is recorded as a separate type.
+4. If **LR=1, existing data is maintained and the data is not added as an independent supporting leaf. Ends expansion for that branch.**
+5. If **LR≠1, the genealogical connection is preserved and the source type and coefficient of the data is evaluated.** `LR < 1` is also included in this path and counterevidence is not hidden.
+6. If the source coefficient is of type 1.0 and the originalsource confirmation condition is also met, it ends successfully. Otherwise, the citation URL of the material is used as the next target.
+7. In case of repetition limit, circulation, no more links, or access failure, it terminates for a specified reason.
+
+In the case of LR unknown, the **proposed policy** is supplementation as the basic tracking rule. To ensure that all source searches are not stopped just because there is no model, leave `LR_UNKNOWN` and continue tracking only for genealogy confirmation purposes within the budget. confidence The increase is not confirmed numerically or added as a new independent leaf.
+
+### 1-3 Relationship to snapshot [#1-3-snapshot과의-관계]
+
+The data found in 1-7 can be used to confirm the genealogy of existing leaves. To adopt the content in support of the new claim, you must register it as `candidateEvidence` and then **pass 1-3·1-4·1-5 again** in the next snapshot. Do not insert into the current candidate set without verification.
+
+### Conditions for termination [#반드시-종료하는-조건]
+
+| exit code | meaning | processing |
+| --- | --- | --- |
+| `TRUSTED_ORIGIN_REACHED` | Check coefficient 1.0 type and source conditions | Confirmed genealogy and reasons for preservation |
+| `NO_NEW_INFORMATION` | LR=1 or separately verified duplicate information | Maintain existing data, no increase in number of independent evidence |
+| `CYCLE_DETECTED` | Revisit the same lineage using normalized URL and content identifier | Preserve circular path, terminate |
+| `DEPTH_LIMIT`, `FETCH_LIMIT`, `TIME_LIMIT` | Reach your set recurring budget | Show unknown range |
+| `NO_REFERENCE`, `FETCH_FAILED` | Next source not found or access failed | Indication of reason for unconfirmed original source |
+
+Do not repeat indefinitely until you succeed. `maxDepth`, `maxFetches`, and `maxDurationMs` are finite policy values, and quarterly depth and execution total URL budget are examined separately. Reads the HTTP(S) document and applies the visit set and budget to redirects as well. Commands written in documents are not used as execution instructions.
+
+## source grade and 1.0 type [#출처-등급과-10-타입]
+
+**Confirmed:** If the source grade of a certain data is D or E, `PROVENANCE_UNKNOWN` is recorded for that data.
+
+The following is a proposal to define grades for **products** in the absence of an approved standard yet. It is not a direct application of a specific external confidence grade standard.
+
+| grade | proposal definition | Eligibility |
+| --- | --- | --- |
+| A | Check the original, issuer, and record path and meet required verification items | Must pass separate data support and case tests |
+| B | source and citation path were confirmed, but verification was limited to some. | Limitations are reflected in scores and explanations |
+| C | source is identified, but confirmation of the original text, independence, and creation process is limited. | Evaluation appropriate to restrictions, withhold confidence if necessary |
+| D | There is a known source notation, but the original source or genealogy cannot be verified. | `PROVENANCE_UNKNOWN` |
+| E | source Unidentifiable or no basis for tracking | `PROVENANCE_UNKNOWN` |
+
+Unevaluated grades are distinguished from confirmed D/E. The specification rule of this draft is that D/E does not pass as a necessary basis for completion chain. If there is another qualifying OR, source, that alternative is maintained. We do not delete the original text or assume that the content is false just because it has a low rating.
+
+The coefficient 1.0 type registers explicit confirmation conditions and policy version in `trustedSourceTypeRegistry`. “Official site,” “government data,” or “LLM says it is trusted” does not automatically give 1.0. Grade A and coefficient 1.0 are not necessarily treated as the same.
+
+## 1-8 · leaf confidence [#1-8--leaf-신뢰도]
+
+`SUPPORTED`, event matching, and binding, which passed the source gate, are evaluated. The numerical composition of the first prototype is as follows: **proposed**.
+
+<Equation number="C3" label={"Proposed score model for eligible binding"} tex={String.raw`s_{\mathrm{leaf}}=r_{\mathrm{source}}\,c_{\mathrm{material}}`} />
+
+`c_material` is a policy coefficient that evaluates the directness, completeness, and measurement or recording quality of the section. 1-4 is the gateway to whether requirements are met, and `c_material` represents the quality of data that passed the gateway. Ineligible data should not be revived with a high source score.
+
+source·Use the data coefficient only once and do not multiply it repeatedly at each citation step. Save the coefficient determination basis, evaluator, and version. The above product is the **product score model** before verification, and is not automatically interpreted as an estimate corrected by probability. If there is no value, `null` and the reason are returned.
+
+## AND·OR·NOT_SUPPORT Aggregation [#andornot_support-집계]
+
+When the uncertainty of child support is modeled independently, the equation adopted in the design is applied.
+
+<Equation number="C4" label={"Three operators under independence assumption"} tex={String.raw`\begin{aligned}s_{\mathrm{AND}}(v)&=\prod_i s(c_i)\\s_{\mathrm{OR}}(v)&=1-\prod_i(1-s(c_i))\\s_{\mathrm{NOT\_SUPPORT}}(v)&=\prod_i s(c_i^{-})\end{aligned}`} />
+
+This product form has the same structure as the series/parallel confidence calculation of independent components. The independence assumption is a condition that justifies multiplication, and is not satisfied simply by the fact that source is different. [NIST serial model](https://www.itl.nist.gov/div898/handbook/apr/section1/apr182.htm), [NIST Parallel Model](https://www.itl.nist.gov/div898/handbook/apr/section1/apr183.htm).
+
+For two independent inputs of 0.8 and 0.6, AND gives 0.48 and OR gives 0.92. If those inputs support a negative claim under NOT_SUPPORT, its support score is also 0.48. Do not replace it with `1−0.48`.
+
+The notation `P` in the original design is maintained in the model description, but the default name of the UI/API is suggested as `supportScore`. In the absence of a probability model calibrated to the actual correct answer, it is not displayed as “probability that the conclusion is true 92%”.
+
+<SupportExplorer number="C3" />
+
+## Preservation of shared evidence and double counting issues [#공유-증거의-보존과-중복-집계-문제]
+
+Duplicate material identified in 1-6 and material sharing an original source in 1-7 are linked through shared `evidenceAtomId` values and dependence groups. Neither the number of URLs nor the number of displayed leaves is a count of independent observations.
+
+<ResearchDiagram kind="shared" number="C4" />
+
+<Equation number="C5" label={"Normalization of logical expressions preserving shared variables"} tex={String.raw`(a\land b)\lor(a\land c)=a\land(b\lor c)`} />
+
+If a=0.8, b=0.7, c=0.6 and a·b·c are independent, it is as follows.
+
+<Equation number="C6" label={"Comparison of two calculations for the same input"} tex={String.raw`\begin{aligned}s_{\mathrm{shared}}&=0.8(1-0.3\cdot0.4)=0.704\\s_{\mathrm{naive}}&=1-(1-0.56)(1-0.48)=0.7712\end{aligned}`} />
+
+<ResearchPlot kind="shared-evidence" number="C5" />
+
+Enumerating candidate evidence trees does not make them independent. The final score must **preserve the shared evidence variables in the original logical expression**, rather than applying an independent OR operation to candidate scores.
+
+An implementation suggestion is to normalize the Boolean DAG and use Shannon decomposition or BDD-based weighted evaluation on shared atoms. Weighted multiplication is used only when independence between atoms is defined. In the worst case, the amount of calculations can become large, so a separate evaluation budget and incomplete status are required.
+
+## When the joint distribution is unknown [#결합-분포가-알려지지-않은-경우]
+
+If you each added new observations while citing the same press release, do not combine them all into one, but divide them into a shared section and an independent additional section. Without this distinction or combination model, the independent score is not confirmed.
+
+If there are only marginal values `p1` and `p2` that can be interpreted as probabilities and the joint distribution is not known, the following range can be used.
+
+<Equation number="C7" label={"Boundary of two events with unknown joint distribution"} tex={String.raw`\begin{aligned}\max(0,p_1+p_2-1)&\le P(A\cap B)\le\min(p_1,p_2)\\\max(p_1,p_2)&\le P(A\cup B)\le\min(1,p_1+p_2)\end{aligned}`} />
+
+<ResearchPlot kind="dependence-bounds" number="C6" />
+
+This is the range obtained from the basic intersection/union probability rules. The product random score is not expressed as a corrected probability of this range. For complex shared DAGs, do not assume that simple interval iteration will give the correct final range; return a conservative range or an unevaluable range.
+
+## Thresholds and TRUST_WEAK [#임계값과-trust_weak]
+
+Store the root threshold `tau_root` and any optional subordinate thresholds in the policy. **No operational threshold has yet been confirmed.** The value 0.80 in the example is illustrative.
+
+| evaluation | Judgment |
+| --- | --- |
+| Exact score or conservative lower bound is above threshold | This model and policy are sufficient |
+| Below upper limit threshold | `TRUST_WEAK`, describes the actual computational bottleneck |
+| Range crosses threshold | Sufficientness cannot be confirmed `TRUST_WEAK` + `DEPENDENCY_UNRESOLVED` |
+| Required score/combined model is unknown | Score null, `TRUST_WEAK` + reason for withholding evaluation |
+
+Do not apply the root threshold to each subordinate alternative in advance, thereby removing the possibility of gaining support through OR. Specify any necessary subordinate thresholds in the logical design.
+
+The output includes calculation formulas for each node, atoms used, shared dependencies, excluded data, score basis, threshold/policy version, and bottleneck nodes. When accounting for weak links, do not just arbitrarily adjust the score to exceed 0.8.

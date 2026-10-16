@@ -1,0 +1,12 @@
+{
+  "title": "Cluevia 文档",
+  "pages": [
+    "index",
+    "main-algorithm",
+    "algorithms",
+    "concepts",
+    "reference",
+    "guide",
+    "development"
+  ]
+}

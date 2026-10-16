@@ -1,0 +1,25 @@
+.case-overview { position: relative; display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
+.co-live-graph { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.co-check-toolbar { position: absolute; z-index: 7; top: 11px; left: 16px; right: 16px; display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; pointer-events: none; }
+.co-check-status { display: flex; align-items: center; gap: 8px; max-width: min(65%, 510px); padding: 7px 9px; border-radius: 7px; background: #f4efe5e0; color: #967b60; font-size: 10px; line-height: 1.65; }
+.co-check-status > i { flex: none; width: 4px; height: 4px; border-radius: 50%; background: #ae8068; }
+.co-check-status > span { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.co-check-actions { display: flex; flex: none; gap: 5px; pointer-events: auto; }
+.co-check-actions button { display: flex; align-items: center; gap: 10px; min-height: 31px; padding: 7px 10px; border: 1px solid #d9cbb95c; border-radius: 7px; background: #f8f2e9ee; color: #8e6a4b; font: 9px var(--mono); cursor: pointer; transition: background .18s, color .18s; }
+.co-check-actions button:hover { background: #efe2d2; color: #714b30; }
+.co-check-actions button:disabled { opacity: .5; cursor: wait; }
+.co-check-actions button:focus-visible { outline: 2px solid #a46b4f; outline-offset: 3px; }
+.co-check-toolbar.is-checking .co-check-status > i { background: #b35245; box-shadow: 0 0 7px #b3524566; animation: co-check-pulse 1.8s ease-in-out infinite; }
+.co-saved-note { position: absolute; bottom: 60px; left: 20px; max-width: min(370px, 60%); padding: 4px 7px; border-radius: 4px; background: #f4efe5df; color: #a0876c; font-size: 9px; line-height: 1.6; pointer-events: none; }
+.gw-graph-label { display: flex; align-items: center; gap: 7px; color: #8e7355; font: 10px var(--mono); }
+@keyframes co-check-pulse { 50% { opacity: .4; } }
+@media (max-width: 600px) { .co-check-toolbar { left: 9px; right: 9px; gap: 6px; top: 7px; } .co-check-status { padding: 5px; gap: 5px; font-size: 9px; max-width: 58%; } .co-check-actions button { padding: 6px 7px; font-size: 8px; } .co-check-actions { gap: 3px; } .co-saved-note { left: 10px; bottom: 77px; } }
+@media (prefers-reduced-motion: reduce) { .co-check-toolbar.is-checking .co-check-status > i { animation: none; } .co-check-actions button { transition: none; } }
+.co-layout-state { align-self: center; color: #a18468; font: 8px var(--mono); }
+.co-check-toolbar { top: 54px; }
+.co-check-status:empty { display: none; }
+.co-check-actions { margin-left: auto; }
+.co-check-actions .co-cluevia-toggle { border-color: #c9b39c87; background: #f9f2e7f2; color: #6f5339; }
+.co-cluevia-toggle > i { width: 5px; height: 5px; flex: none; background: #b29c80; border-radius: 50%; }
+.co-cluevia-toggle[aria-pressed="true"] > i { background: #ad5b4d; box-shadow: 0 0 7px #af584447; }
+@media (max-width: 600px) { .co-check-toolbar { top: 48px; } }

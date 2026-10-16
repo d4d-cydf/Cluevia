@@ -45,7 +45,6 @@ export default function HomeScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [connectionError, setConnectionError] = useState('');
-  const [job, setJob] = useState<GenerationJob | null>(null);
   const [accessKey, setAccessKey] = useState('');
   const [unlocking, setUnlocking] = useState(false);
   const [offlineImport, setOfflineImport] = useState<File | null>(null);
@@ -53,7 +52,8 @@ export default function HomeScreen() {
   const [uploadedFiles, setUploadedFiles] = useState<Record<string, UploadedDocument>>({});
   const [clarification, setClarification] = useState<{ question: string; sources: ClarificationSource[]; progress?: ClarificationDraft } | null>(null);
   const [restoringDraft, setRestoringDraft] = useState(true);
-  const draftActive = useRef(false);
+  const mounted = useRef(false);
+  const requestPending = useRef(false);
   const uploadedFilesRef = useRef<Record<string, UploadedDocument>>({});
   const pastedUpload = useRef<{ text: string; document: UploadedDocument } | null>(null);
   const uploadController = useRef<AbortController | null>(null);
@@ -61,38 +61,32 @@ export default function HomeScreen() {
   const headerActions = useRef<HTMLDivElement>(null);
   const dragDepth = useRef(0);
   const fileSequence = useRef(0);
-  const busy = restoringDraft || submitting || isActiveJob(job);
+  const busy = restoringDraft || submitting;
+  const activeJobs = status?.activeJobs?.filter(isActiveJob) ?? [];
+  const hasActiveJobs = activeJobs.length > 0;
   const ready = question.trim().length > 0 || files.length > 0 || sourceText.trim().length > 0;
   const locked = status?.authRequired && !status.authenticated;
   const provider = status?.provider;
   const codexReady = provider?.kind === 'hybrid' ? !!provider.codex?.available && provider.codex.authenticated !== false : !!provider?.available && provider.authenticated !== false;
   const providerReady = provider?.ontologyPlanning ? codexReady : !!provider?.available && (provider.kind === 'hybrid' || provider.authenticated !== false);
   const providerLabel = provider?.ontologyPlanning
-    ? provider.jev?.configured ? 'Codex 설계·분석 · Jev 선택 판정 준비됨' : 'Codex 온톨로지 설계·분석 준비됨'
+    ? provider.jev?.configured ? 'AI 설계·분석 · Jev 선택 판정 준비됨' : 'AI 온톨로지 설계·분석 준비됨'
     : status?.provider?.kind === 'hybrid'
     ? status.provider.jev?.configured ? '하이브리드 분석 · Jev 설정됨' : status.provider.codex?.available && status.provider.codex.authenticated !== false ? '표 데이터 · 문서 분석 준비됨' : '표 데이터 분석 준비됨'
     : '분석 엔진 준비됨';
 
   async function loadWorkspace(signal?: AbortSignal) {
     const result = await apiRequest<SystemStatus>('/api/system/status', { signal });
+    if (signal?.aborted || !mounted.current) return result;
     setStatus(result); setConnectionError('');
     if (!result.authenticated) return result;
-    if (signal?.aborted) return result;
-    let pending: string | null = null;
-    try { pending = localStorage.getItem(pendingJobKey); } catch { /* Use server state. */ }
     const requestedJob = new URLSearchParams(window.location.search).get('job');
     if (requestedJob) { navigate(`/analysis/${encodeURIComponent(requestedJob)}`, { replace: true }); return result; }
-    if (draftActive.current) return result;
-    const active = result.activeJobs?.find(item => item.id === pending) || (!requestedJob ? result.activeJobs?.[0] : undefined);
-    if (active) { setJob(active); setQuestion(active.question); rememberJob(active.id); }
-    else if (pending) {
-      try { const current = await apiRequest<{ job: GenerationJob }>(`/api/jobs/${encodeURIComponent(pending)}`, { signal }); if (!signal?.aborted) { setJob(current.job); setQuestion(current.job.question); } }
-      catch (error) { if (error instanceof Error && error.name === 'AbortError') throw error; rememberJob(); }
-    }
     return result;
   }
 
   useEffect(() => {
+    mounted.current = true;
     const controller = new AbortController();
     void (async () => {
       const requested = new URLSearchParams(window.location.search);
@@ -100,7 +94,6 @@ export default function HomeScreen() {
       if (controller.signal.aborted) return;
       if (draft) {
         const { intake, progress } = draft;
-        draftActive.current = true;
         setQuestion(intake.question); setSourceText(intake.sourceText); setFiles(intake.files);
         fileSequence.current = Math.max(0, ...intake.files.map(file => Number(file.id.replace('doc-', '')) || 0));
         uploadedFilesRef.current = intake.uploadedFiles; setUploadedFiles(intake.uploadedFiles);
@@ -109,8 +102,29 @@ export default function HomeScreen() {
       setRestoringDraft(false);
       await loadWorkspace(controller.signal);
     })().catch(error => { if (!controller.signal.aborted) { setRestoringDraft(false); setConnectionError(error instanceof Error ? error.message : '서버 연결을 확인해주세요.'); } });
-    return () => { controller.abort(); uploadController.current?.abort(); };
+    return () => { mounted.current = false; controller.abort(); uploadController.current?.abort(); };
   }, []);
+
+  useEffect(() => {
+    if (!status?.authenticated) return;
+    const controller = new AbortController();
+    let timer: number | undefined;
+    let pending = false;
+    const refresh = async () => {
+      if (pending || controller.signal.aborted) return;
+      window.clearTimeout(timer); pending = true;
+      try { await loadWorkspace(controller.signal); }
+      catch (error) { if (!controller.signal.aborted) setConnectionError(error instanceof Error ? error.message : '서버 연결을 확인해주세요.'); }
+      finally {
+        pending = false;
+        if (!controller.signal.aborted && hasActiveJobs) timer = window.setTimeout(() => void refresh(), document.hidden ? 10_000 : 2500);
+      }
+    };
+    const visible = () => { if (!document.hidden) void refresh(); };
+    if (hasActiveJobs) timer = window.setTimeout(() => void refresh(), 2500);
+    window.addEventListener('focus', visible); document.addEventListener('visibilitychange', visible);
+    return () => { controller.abort(); window.clearTimeout(timer); window.removeEventListener('focus', visible); document.removeEventListener('visibilitychange', visible); };
+  }, [status?.authenticated, hasActiveJobs]);
 
   useEffect(() => {
     const preference = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -129,7 +143,7 @@ export default function HomeScreen() {
     return () => { document.removeEventListener('pointerdown', closeOutside); document.removeEventListener('keydown', closeEscape); };
   }, [menu]);
 
-  const resetClarification = () => { void clearAnalysisDraft(); draftActive.current = false; setClarification(null); };
+  const resetClarification = () => { void clearAnalysisDraft(); setClarification(null); };
   const addFiles = (incoming: FileList | File[]) => {
     if (busy) return;
     setError('');
@@ -142,7 +156,7 @@ export default function HomeScreen() {
   const onDrop = (event: DragEvent<HTMLDivElement>) => { event.preventDefault(); dragDepth.current = 0; setDragging(false); if (event.dataTransfer.files.length) addFiles(event.dataTransfer.files); };
   const openImportedGraph = async (file: File, browserOnly = false) => {
     setSubmitting(true); setError(''); setOfflineImport(null);
-    try { const graph = await importGraphFile(file, browserOnly); navigate(`/case/${graph.id}/board`); }
+    try { const graph = await importGraphFile(file, browserOnly); if (mounted.current) navigate(`/case/${graph.id}/overview`); }
     catch (error) { setError(error instanceof Error ? error.message : '그래프를 불러오지 못했습니다.'); if (error instanceof ApiUnavailableError) setOfflineImport(file); }
     finally { setSubmitting(false); }
   };
@@ -153,22 +167,27 @@ export default function HomeScreen() {
     finally { setUnlocking(false); }
   }
   async function resumeJob(id: string) {
+    if (busy || requestPending.current) return;
+    requestPending.current = true;
     setSubmitting(true); setError('');
     try {
       const result = await apiRequest<{ job: GenerationJob }>(`/api/jobs/${encodeURIComponent(id)}/resume`, { method: 'POST' });
+      if (!mounted.current) return;
       rememberJob(result.job.id); navigate(`/analysis/${encodeURIComponent(result.job.id)}`, { state: { job: result.job } });
       setStatus(previous => previous ? { ...previous, resumableJobs: previous.resumableJobs?.filter(item => item.id !== id) } : previous);
     } catch (error) { setError(error instanceof Error ? error.message : '분석을 이어서 시작하지 못했습니다.'); }
-    finally { setSubmitting(false); }
+    finally { requestPending.current = false; if (mounted.current) setSubmitting(false); }
   }
   const startInvestigation = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!ready || busy) return;
-    setSubmitting(true); setError(''); setOfflineImport(null); setJob(null);
+    if (!ready || busy || requestPending.current) return;
+    requestPending.current = true;
+    setSubmitting(true); setError(''); setOfflineImport(null);
     try {
       if (files.length === 1 && files[0].size <= GRAPH_LIMITS.jsonBytes && /\.json$/i.test(files[0].name)) {
         let candidate: unknown;
         try { candidate = JSON.parse(await files[0].file.text()); } catch { /* Non-graph JSON remains source material. */ }
+        if (!mounted.current) return;
         if (candidate && typeof candidate === 'object' && 'schemaVersion' in candidate && 'nodes' in candidate && Array.isArray(candidate.nodes) && 'edges' in candidate && Array.isArray(candidate.edges)) { await openImportedGraph(files[0].file); return; }
       }
       const analysisQuestion = question.trim() || '첨부 자료의 객체와 관계를 근거에 따라 정리해줘.';
@@ -176,24 +195,27 @@ export default function HomeScreen() {
       const pasted = sourceText.trim();
       if (files.length + (pasted ? 1 : 0) > GRAPH_LIMITS.documents) throw new Error('붙여넣은 자료를 포함해 최대 10개까지 분석할 수 있습니다.');
       if (locked) throw new Error('워크스페이스 접속 키로 먼저 연결해주세요.');
-      if (status?.provider && !providerReady) throw new Error(provider?.ontologyPlanning ? provider.codex?.message || '온톨로지 설계에 필요한 Codex 연결을 확인해주세요.' : status.provider.message || '분석 엔진을 사용할 수 없습니다. 서버의 연결 상태를 확인해주세요.');
+      if (status?.provider && !providerReady) throw new Error(provider?.ontologyPlanning ? provider.codex?.message || '온톨로지 설계에 필요한 모델 연결을 확인해주세요.' : status.provider.message || '분석 엔진을 사용할 수 없습니다. 서버의 연결 상태를 확인해주세요.');
       const previewChars = Math.floor(12000 / Math.max(1, files.length + (pasted ? 1 : 0)));
       const sources = await Promise.all(files.map(async attachment => ({
         id: attachment.id, name: attachment.name.slice(0, 300), size: attachment.size,
         excerpt: (await attachment.file.slice(0, previewChars * 4).text()).slice(0, previewChars),
       })));
+      if (!mounted.current) return;
       if (pasted) sources.push({ id: 'pasted-source', name: '붙여넣은 자료', size: new Blob([pasted]).size, excerpt: pasted.slice(0, previewChars) });
       await clearAnalysisDraft();
+      if (!mounted.current) return;
       await saveAnalysisDraft({ question: analysisQuestion, sourceText, files, sources, uploadedFiles: uploadedFilesRef.current });
-      draftActive.current = true;
+      if (!mounted.current) return;
       setClarification({ question: analysisQuestion, sources });
     } catch (error) {
       setError(error instanceof Error ? error.message : '분석 범위를 확인하지 못했습니다.');
-    } finally { setSubmitting(false); }
+    } finally { requestPending.current = false; if (mounted.current) setSubmitting(false); }
   };
 
   const confirmInvestigation = async (analysisBrief?: AnalysisBrief) => {
-    if (!clarification || busy) return;
+    if (!clarification || busy || requestPending.current) return;
+    requestPending.current = true;
     setSubmitting(true); setError('');
     try {
       if (locked) throw new Error('워크스페이스 접속 키로 먼저 연결해주세요.');
@@ -225,13 +247,16 @@ export default function HomeScreen() {
       controller.signal.throwIfAborted();
       setUploadProgress(null); uploadController.current = null;
       await saveAnalysisDraft({ question: analysisQuestion, sourceText, files, sources: clarification.sources, uploadedFiles: uploadedFilesRef.current });
+      if (!mounted.current) return;
       const result = await apiRequest<{ job: GenerationJob }>('/api/jobs', { method: 'POST', body: JSON.stringify({ question: analysisQuestion, documents, ...(uploadIds.length ? { uploadIds } : {}), ...(analysisBrief ? { analysisBrief } : {}) }) });
-      void clearAnalysisDraft(); draftActive.current = false;
+      // Leaving this screen does not cancel a server job or redirect a newer intake.
+      if (!mounted.current) return;
+      void clearAnalysisDraft();
       rememberJob(result.job.id); navigate(`/analysis/${encodeURIComponent(result.job.id)}`, { state: { job: result.job } });
     } catch (error) {
       setError(error instanceof Error && error.name === 'AbortError' ? '업로드를 취소했습니다. 전송이 끝난 자료는 다시 시작할 때 재사용합니다.' : error instanceof Error ? error.message : '그래프를 생성하지 못했습니다.');
     }
-    finally { setSubmitting(false); setUploadProgress(null); uploadController.current = null; }
+    finally { requestPending.current = false; if (mounted.current) { setSubmitting(false); setUploadProgress(null); } uploadController.current = null; }
   };
 
   return <div className={`home-screen${dragging ? ' home-is-dragging' : ''}`} onDragOver={event => { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; }} onDragEnter={event => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); dragDepth.current += 1; setDragging(true); } }} onDragLeave={() => { dragDepth.current = Math.max(0, dragDepth.current - 1); if (!dragDepth.current) setDragging(false); }} onDrop={onDrop}>
@@ -243,7 +268,7 @@ export default function HomeScreen() {
     </div></header>
     <main className="home-main"><div className="home-case-container">
       <div className="home-workspace-status"><div><span className={`home-provider-dot${providerReady && status?.authenticated ? ' is-ready' : ''}`} /><span>{locked ? '워크스페이스 잠김' : providerReady ? providerLabel : status ? '분석 엔진 연결 필요' : connectionError ? '서버 연결 안 됨' : '워크스페이스 연결 중…'}</span></div>{status?.ontology && <Link to="/ontology">객체 {status.ontology.entities} · 관계 {status.ontology.relationships} <span aria-hidden="true">↗</span></Link>}</div>
-      {job && <section className="home-active-analysis" aria-label="Current analysis"><div><strong>{isActiveJob(job) ? '진행 중인 분석' : job.status === 'completed' ? '최근 분석 결과' : '이어서 확인할 분석'}</strong><span>{job.question}</span></div><Link to={`/analysis/${encodeURIComponent(job.id)}`}>분석 화면 열기 ↗</Link></section>}
+      {hasActiveJobs && <section className="home-background-jobs" aria-label="진행 중인 케이스"><header><span><i aria-hidden="true" />Active cases <b>{activeJobs.length}</b></span><small>분석을 계속하면서 새 케이스를 시작할 수 있습니다.</small></header><ul>{activeJobs.map(item => <li key={item.id}><Link to={`/analysis/${encodeURIComponent(item.id)}`}><span className={`home-background-state is-${item.status}`}>{item.status === 'queued' ? 'Queued' : item.stage === 'designing' ? 'Planning' : 'Running'}</span><span className="home-background-detail"><strong>{item.question}</strong><small>{item.message || '분석을 계속하고 있습니다.'}</small></span><span className="home-background-open" aria-hidden="true">↗</span></Link></li>)}</ul></section>}
       {locked && <form className="home-unlock" onSubmit={event => void unlock(event)}><label htmlFor="workspace-key">워크스페이스 접속 키</label><div><input id="workspace-key" type="password" value={accessKey} onChange={event => setAccessKey(event.target.value)} autoComplete="off" placeholder="서버에 설정한 접속 키" required /><button type="submit" disabled={unlocking}>{unlocking ? '연결 중…' : '연결'}</button></div><small>접속 키는 현재 탭에서만 보관합니다.</small></form>}
       {restoringDraft && <p role="status">작성 중인 분석 요청을 확인하고 있습니다…</p>}
       {clarification && <AnalysisClarification question={clarification.question} sources={clarification.sources} initialDraft={clarification.progress} busy={submitting} error={error} uploadProgress={uploadProgress} onCancel={() => { resetClarification(); setError(''); window.requestAnimationFrame(() => document.getElementById('home-question')?.focus()); }} onConfirm={confirmInvestigation} onCancelUpload={() => uploadController.current?.abort()} />}
@@ -254,18 +279,18 @@ export default function HomeScreen() {
           <label htmlFor="home-question" className="home-question-label">What do you want to find out?</label>
           <div className="home-question-field"><textarea id="home-question" className="home-question" rows={3} maxLength={2000} disabled={busy} placeholder="예: 고객·주문·상품의 관계를 정리하고 주문 흐름을 그래프로 보여줘" value={question} onChange={event => { setQuestion(event.target.value); resetClarification(); }} aria-describedby="home-question-hint" />
             {files.length > 0 && <ul className="home-attachments" aria-label="Attached files">{files.map(file => <li className="home-attachment" key={file.id}><Paperclip size={14} /><span className="home-attachment-name" title={file.name}>{file.name}</span><span className="home-attachment-size">{uploadedFiles[file.id] ? `전송됨 · ${uploadedFiles[file.id].chunkCount}구간` : formatSize(file.size)}</span><button type="button" disabled={busy} aria-label={`Remove ${file.name}`} onClick={() => { resetClarification(); delete uploadedFilesRef.current[file.id]; setUploadedFiles({ ...uploadedFilesRef.current }); setFiles(previous => previous.filter(item => item.id !== file.id)); }}>×</button></li>)}</ul>}
-            <div className="home-field-actions"><input className="home-file-input" type="file" multiple ref={fileInput} onChange={onFiles} aria-label="Attach files" tabIndex={-1} /><button type="button" className="home-attach-button" disabled={busy} onClick={() => fileInput.current?.click()}><Paperclip /><span>Attach files</span></button><button type="submit" className="home-start-button" disabled={!ready || busy} title={!ready ? 'Type a question or attach a file first' : undefined}><span>{uploadProgress ? 'UPLOADING…' : busy ? job?.stage === 'designing' ? 'DESIGNING ONTOLOGY…' : 'BUILDING GRAPH…' : 'START INVESTIGATION'}</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg></button></div>
+            <div className="home-field-actions"><input className="home-file-input" type="file" multiple ref={fileInput} onChange={onFiles} aria-label="Attach files" tabIndex={-1} /><button type="button" className="home-attach-button" disabled={busy} onClick={() => fileInput.current?.click()}><Paperclip /><span>Attach files</span></button><button type="submit" className="home-start-button" disabled={!ready || busy} title={!ready ? 'Type a question or attach a file first' : undefined}><span>{uploadProgress ? 'UPLOADING…' : busy ? 'PREPARING…' : 'START INVESTIGATION'}</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg></button></div>
           </div>
           <p className="home-question-hint" id="home-question-hint">확인 질문으로 분석할 대상과 범위를 정리한 뒤 그래프를 만듭니다. 시작 전 정리된 요청을 직접 수정할 수 있습니다.</p>
-          <details className="home-source-text"><summary>Paste source text <span>자료 직접 붙여넣기</span></summary><label htmlFor="source-text" className="home-visually-hidden">Source text</label><textarea id="source-text" rows={4} disabled={busy} placeholder="질문의 근거가 되는 문서나 기사 내용을 붙여 넣으세요." value={sourceText} onChange={event => { setSourceText(event.target.value); resetClarification(); }} /><p>JSONL · NDJSON · CSV · TSV · JSON 등 UTF-8 텍스트 · 자료 형식에 맞춰 모든 구간을 처리합니다.</p></details><p className="home-privacy-note">온톨로지 설계용 자료와 문서 분석에 필요한 내용은 연결된 모델로 전송됩니다. 원문·온톨로지·그래프는 이 서버에 저장됩니다.</p>
-          <p className="home-full-file-note">설계된 유형과 관계에 맞춰 표 데이터는 코드로 변환하고, 문서는 Codex로 분석합니다. Jev는 적합한 선택형 관계 판정에만 사용합니다. 큰 파일은 모든 구간을 처리해 부분 그래프로 저장하며, 결과의 근거를 함께 확인할 수 있습니다.</p>
+          <details className="home-source-text"><summary>Paste source text or URLs <span>TEXT / LINK</span></summary><label htmlFor="source-text" className="home-visually-hidden">Source text</label><textarea id="source-text" rows={4} disabled={busy} placeholder="기사 URL을 한 줄에 하나씩 입력하거나 문서 본문을 붙여 넣으세요." value={sourceText} onChange={event => { setSourceText(event.target.value); resetClarification(); }} /><p>URL은 공개된 페이지의 본문을 읽습니다. 읽지 못한 링크는 사유를 표시합니다. TXT · MD · CSV · JSON 등 텍스트도 입력할 수 있습니다.</p></details><p className="home-privacy-note">온톨로지 설계용 자료와 문서 분석에 필요한 내용은 연결된 모델로 전송됩니다. 원문·온톨로지·그래프는 이 서버에 저장됩니다.</p>
+          <p className="home-full-file-note">설계된 유형과 관계에 맞춰 표 데이터는 코드로 변환하고, 문서는 AI로 분석합니다. Jev는 적합한 선택형 관계 판정에만 사용합니다. 큰 파일은 모든 구간을 처리해 부분 그래프로 저장하며, 결과의 근거를 함께 확인할 수 있습니다.</p>
           {uploadProgress && <section className="home-upload-progress" aria-label="Source upload progress" role="status"><div><strong>자료 전송 {uploadProgress.index} / {uploadProgress.total}</strong><button type="button" onClick={() => uploadController.current?.abort()}>업로드 취소</button></div><p>{uploadProgress.name}</p><small>서버에 원본을 보내고 분석 구간을 준비하고 있습니다. 전송을 마친 자료는 다시 시작할 때 재사용합니다.</small></section>}
           {error && <p className="home-intake-error" role="alert">{error}</p>}
           {offlineImport && <div className="home-offline-import"><p>서버 연결이 없어 이 기기의 브라우저에만 저장할 수 있습니다. 다른 기기와는 공유되지 않습니다.</p><button type="button" disabled={busy} onClick={() => void openImportedGraph(offlineImport, true)}>이 브라우저에만 불러오기</button></div>}
 
         </form></div>
       </section>
-      {!!status?.resumableJobs?.filter(item => item.id !== job?.id).length && <section className="home-resumable-jobs" aria-label="Unfinished analyses"><span className="home-panel-caption">UNFINISHED ANALYSES</span>{status.resumableJobs.filter(item => item.id !== job?.id).map(item => <article key={item.id}><div><strong>{item.question}</strong><span>{item.completedChunks || 0} / {item.totalChunks || 0} 구간 처리 · {item.graphIds?.length || 0}개 그래프 저장</span></div><button type="button" disabled={busy} onClick={() => void resumeJob(item.id)}>이어서 분석</button><Link to={`/analysis/${encodeURIComponent(item.id)}`}>진행 내용 보기</Link></article>)}</section>}
+      {!!status?.resumableJobs?.length && <section className="home-resumable-jobs" aria-label="Unfinished analyses"><span className="home-panel-caption">UNFINISHED ANALYSES</span>{status.resumableJobs.map(item => <article key={item.id}><div><strong>{item.question}</strong><span>{item.completedChunks || 0} / {item.totalChunks || 0} 구간 처리 · {item.graphIds?.length || 0}개 그래프 저장</span></div><button type="button" disabled={busy} onClick={() => void resumeJob(item.id)} aria-label="이어서 분석">Resume</button><Link to={`/analysis/${encodeURIComponent(item.id)}`} aria-label="진행 내용 보기">View activity</Link></article>)}</section>}
     </div></main><footer className="home-footer">Public sources only · Every finding links back to its evidence</footer>
     {dragging && <div className="home-drop-indicator" aria-hidden="true"><Paperclip size={26} /><span>Drop files to attach evidence</span></div>}<span className="home-visually-hidden" role="status">{files.length > 0 ? `${files.length} ${files.length === 1 ? 'file' : 'files'} attached` : ''}</span>
   </div>;

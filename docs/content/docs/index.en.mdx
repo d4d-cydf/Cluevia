@@ -1,0 +1,69 @@
+---
+title: "Algorithm Overview"
+description: "Cluevia's technical document that diagnoses evidence gap of evidence by separating claim·evidence·inference rules."
+---
+
+<Abstract keywords={"claim Verification · evidence requirement · Logical Structure · source Tracking · evidence gap supplementation"}>
+
+Examining a conclusion requires distinguishing between what is recorded in the data and how well that record supports the conclusion. Cluevia expresses this division as Why-not Tree, diagnoses unmet conditions through Gap Find, and then presents the necessary supplementation data through Gap Fill. This group of documents brings together the algorithm's conceptual definition, execution contract, and implementation scope. When interpreting the results, you must check whether supporting path has been completed, the level of support, and the evaluation completeness.
+
+</Abstract>
+
+## Scope of the document [#문서의-범위]
+
+[Main Algorithm Guide](/en/docs/main-algorithm/overview) consists of a technical report that goes from problem definition to methodology, evaluation plan, and limitations. Each detailed specification defines decision rules and exception conditions, and the current implementation document connects the contract with the actual module, storage structure, and screen. Currently, the data gap diagnosis and user supplementation paths have been implemented, but this does not mean that automatic external collection and empirical verification of the numerical policy have been completed.
+
+## main algorithm [#메인-알고리즘]
+
+```text
+목표 주장과 사건 범위
+       ↓
+Why-not Tree: 내부는 주장·AND·OR·NOT_SUPPORT, 최하위는 증거 자료
+       ↓
+1-3 현재 자료로 가능한 집합 트리 생성
+1-4 자료 판정 중 지지만 통과
+1-5 사건 메타데이터 일치 검사
+1-6 부모별 중복 자료 식별
+1-7 출처·인용 계보 추적
+1-8 leaf → 부모 → 전체 신뢰도 평가
+       ↓
+공백 사유 + 미니 그래프 + 다음 액션
+       ↓
+Gap Fill → 새 자료·판정 버전 → 재평가
+```
+
+NOT_SUPPORT combines data proving negative claim with AND. The absence of necessary data or failure to complete review shall not be interpreted as verification of negative claim.
+
+## Instructions reading order [#지침서-읽는-순서]
+
+| Docs | What we cover |
+| --- | --- |
+| [Core Algorithm: Specification and Methodology](/en/docs/main-algorithm/overview) | Confirmation request, complete connection of steps·evidence gap·actions |
+| [Tree Model and Data Contracts](/en/docs/main-algorithm/model) | Leaf with data type, claim concatenation, enum and resulting contract |
+| [Gap Find: Evaluation Rules](/en/docs/main-algorithm/gap-find) | Set creation, elimination according to parent operator, event matching and duplication |
+| [Source Provenance and Confidence](/en/docs/main-algorithm/confidence) | likelihood ratio·source Coefficient, end of iteration, OR·AND·shared basis calculation |
+| [Gap Fill: Remediation Actions](/en/docs/main-algorithm/gap-fill) | evidence gap Search, explanation, data request and 3 chain completion strategies |
+| [Worked Example](/en/docs/main-algorithm/worked-example) | The process of changing the score and evidence gap starting from insufficient data and re-verification |
+| [Implementation and Acceptance Criteria](/en/docs/main-algorithm/implementation) | Pseudocode, LLM·code role, 30 accepted cases and unconfirmed policy |
+
+## Six evidence gaps [#여섯-가지-공백]
+
+| type | meaning | supplementation direction |
+| --- | --- | --- |
+| `EVIDENCE_MISSING` | Required evidence missing | Direct data search, user request if data cannot be obtained |
+| `EVIDENCE_INSUFFICIENT` | Not enough to support the claim | Explanation of insufficient facts and conditions, request for additional evidence |
+| `EVENT_MISMATCH` | Incident linking rule mismatch | Description of collision point and inability to connect |
+| `TRUST_WEAK` | Total confidence Not meeting standard or sufficient not confirmed | Mini-graphs and bottleneck explanations, strengthening evidence |
+| `PROVENANCE_UNKNOWN` | source grade D/E | Request original source notation or search for original source |
+| `CHAIN_UNKNOWN` | No completion chain after completion of assessment | 3 chain completion strategies including required data types |
+
+## Read along with current app implementation [#현재-앱-구현과-함께-읽기]
+
+ontology design, original text extraction, and SQLite storage provide the necessary data and evidence connections for gap diagnosis. The logic/decision contract and the extraction/storage contract have different responsibilities and are reviewed in their respective implementation documents.
+
+<Cards>
+  <Card title={"Welcome to the main tutorial"} href="/docs/main-algorithm/overview" description={"Read Cluevia's goal algorithm and step-by-step implementation criteria."} />
+  <Card title={"Worked Example"} href="/docs/main-algorithm/worked-example" description={"Check missing/ineligible/duplicate/weak confidence as a single case."} />
+  <Card title={"Current Implementation Pipeline"} href="/docs/algorithms/current-pipeline" description={"ontology Current code from design to extraction, verification, storage, and display."} />
+  <Card title={"Using public examples"} href="/docs/guide/quickstart" description={"See graph exploration in action in the current app."} />
+</Cards>

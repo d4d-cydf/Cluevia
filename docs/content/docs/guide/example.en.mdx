@@ -1,0 +1,86 @@
+---
+title: "Reading the GFW Case"
+description: "Galapagos 2017 public examples distinguish objects, reported relationships, inferences, and event dates."
+---
+
+**Galápagos · 2017** included in Cluevia is a structured example of the public literature from Global Fishing Watch. It connects the ship encounter and the Galapagos capture incident, focusing on the carrier **Fu Yuan Yu Leng 999**.
+
+| object | relationship | event with date | source |
+| --- | --- | --- | --- |
+| 12 | 15 | 2 | 3 |
+
+You can open it from **GFW Public Case** on the home page. To check the file, please use the materials below.
+
+- <a href="/examples/gfw-galapagos.json" download>Download the completed graph JSON</a>
+- <a href="/examples/gfw-source-notes.txt" download>Download summary data for analysis input</a>
+
+<Callout title={"Range shown by this example"}>
+This is a historical case based on public literature from 2017. This is not a real-time ship position or AIS API query result, and the node locations on the screen do not represent actual geographic coordinates.
+</Callout>
+
+## 1. Start with a question [#1-질문에서-출발하기]
+
+The example questions are:
+
+> How are the encounter ships of Fu Yuan Yu Leng 999 and the Galapagos capture incident connected?
+
+Read the summary in the CASE BRIEF and check out **READ WITH CONTEXT**. The examples do not treat encounters between vessels as conclusive evidence of transhipment.
+
+## 2. Distinguish between reporting and reasoning in Board [#2-board에서-보고와-추론-구분하기]
+
+Select **Fu Yuan Yu Leng 999** and compare the following two relationships.
+
+| relationship | sign | How to read |
+| --- | --- | --- |
+| Carrier → **4 ships and AIS encounter** | `reported`, solid line | Encounter relationship reported by source |
+| Longline vessel → **Transshipment possibility** of carrier vessel | `inferred`, dotted line | Interpretation based on encounter analysis |
+
+Press the source number in **EVIDENCE** of the relationship details. Even if it is based on the same literature, it can be confirmed that which relationships correspond to reports and which relationships are inferences.
+
+The fact that an encounter has been observed alone does not determine the actual transfer of cargo, the location of the shark's capture, or even the liability of individual vessels. When reading connections in a graph, check the relationship name, status, and description.
+
+## 3. Differentiate roles in Lanes [#3-lanes에서-역할-구분하기]
+
+Switch to **LANES** and you will see four groups.
+
+| group | Contained Object |
+| --- | --- |
+| Vessels | Fu Yuan Yu Leng 999, Fu Yuan Yu 7866·7861·7865·7862 |
+| Events | AIS encounter with 4 ships, capture of carrier |
+| Locations | Fuzhou Port, Equatorial East Pacific, Galapagos Marine Reserve |
+| Organizations | Ecuadorian Navy, Global Fishing Watch |
+
+Look at how ships, places, and organizations are connected in the same event. Turning on **Key connections** will highlight connections specified as key relationships in the example.
+
+## 4. Get direct answers in Overview [#4-overview에서-직접적인-답-확인하기]
+
+**OVERVIEW** simply displays only the objects and relationships that directly answer the question. The transshipment relationship in this case is an inferred possibility and is not presented as a confirmed answer for actual transshipment. Select the required relationship to open its details and source, and see the complete objects and relationships in **BOARD**. The example also stores the following dated incident data:
+
+| date | Events | sign |
+| --- | --- | --- |
+| 2017-08-05 ~ 2017-08-07 | Encounter with four longline ships | A period with a start and end date |
+| 2017-08-13 | Captured in Galapagos | events of the day |
+
+The port call at Fuzhou Port was included in the relationship map, but the date of port call was not specified in the data, so it was not added to the dated event data. This is an example of not assigning an arbitrary point in time to an item whose date is unknown. Incident data can be found in `events` in the exported JSON.
+
+## 5. Read the roles of different sources [#5-서로-다른-출처의-역할-읽기]
+
+SOURCES in the example contains three sources from the same organization.
+
+- **Analysis of the case at the time:** Data to confirm the vessel encountered and the circumstances of its capture. [GFW’s 2017 Analysis](https://globalfishingwatch.org/impacts/policy-compliance/transhippment-reefer-illegal-sharks/)
+- **Incident follow-up reporting:** Data on the results of follow-up investigations and analysis. [Follow-up report from GFW](https://globalfishingwatch.org/success-story/data-and-analysis-help-track-illegal-shark-fishing/)
+- **Maps and Analysis Methods:** Background material on the platform for analyzing vessel activities and encounters. [GFW Map Introduction](https://globalfishingwatch.org/our-map/)
+
+The map introduction does not replace the basis for the entire individual vessel incident. You need to get into the habit of checking which source is connected to each object and relationship.
+
+## Apply to my materials [#내-자료에-적용하기]
+
+When applying the same structure to other materials, organize it in the following order.
+
+1. **Select an object.** Identify objects related to the question, such as people, organizations, places, and documents.
+2. **Write the relationship in a sentence.** Record who is related to what and in what material.
+3. **Displays inferences.**Distinguishes between explicit reports and mixed interpretations.
+4. **Moves confirmed dates.**Events without dates do not fill in random dates.
+5. **Leaves limitations.** Records information in the case that cannot be confirmed based on data alone.
+
+See [evidence model](/en/docs/concepts/evidence-model) and [graph data contract](/en/docs/reference/graph-document) to create the structures yourself, or [Get started quickly](/en/docs/guide/quickstart) to generate them from summary data.

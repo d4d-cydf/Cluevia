@@ -1,0 +1,53 @@
+---
+title: 앱 구조
+description: 브라우저의 분석 요청, 서버 작업과 SQLite 저장소, 통합 케이스 렌더링의 역할을 나눕니다.
+---
+
+Cluevia는 React 화면과 Node API 서버, SQLite 저장소로 구성합니다. 문서 사이트는 `docs/`의 별도 Next.js·Fumadocs 패키지이며 정적으로 배포할 수 있습니다.
+
+## 처리 계층
+
+| 계층 | 구현 | 역할 |
+| --- | --- | --- |
+| 요청 입력 | `HomeScreen.tsx` | 질문·자료·확인 질문·분석 범위 |
+| HTTP | `server/product-api.ts` | 인증, 업로드, 작업·그래프·온톨로지 API |
+| 작업 실행 | `server/jobs.ts` | 대기열, 진행 상태, 취소와 재개 |
+| 온톨로지 설계 | `server/ontology-planner.ts` | 자료 프로필과 사용자 의도로 정의·매핑 생성 |
+| 자료 처리 | `server/generic-ingest.ts`, `server/analysis-pipeline.ts` | 표 변환, 문서 추출, Jev 판정과 캐시 |
+| 검증·저장 | `server/ontology.ts`, `server/ontology-store.ts` | 원문·스키마 검사, 객체·주장·그래프 저장 |
+| 케이스 통합 | `server/analysis-case.ts` | 같은 작업의 기록과 저장 객체 연결 |
+| 화면 계산 | `GraphRenderer.tsx`, `graph-exploration.ts` | 탐색 범위와 그래프 좌표 |
+
+설계와 문서 추출은 Codex를 사용하고, Jev는 설정된 경우 제한된 판정에 참여합니다. 이전 Foundry AIP 모듈은 남아 있으나 현재 홈과 API의 기본 실행 경로가 아닙니다.
+
+## 분석 작업의 수명
+
+```text
+범위 확인 → 원문 업로드 → queued → running → 완료 / 실패 / 취소
+                                       │
+                                       └→ 구간별 검증·저장 → 화면 갱신
+```
+
+전체 작업은 한 번에 하나씩 실행하고, 실행·대기 합계 최대 5개를 받습니다. 작업 내부의 추출 worker 동시성은 별도 설정입니다. 실패·취소·재시작 뒤에는 저장된 체크포인트에서 남은 구간을 이어서 실행할 수 있습니다.
+
+질문만 입력한 작업은 온톨로지만 저장하며 사실 그래프를 생성하지 않습니다. 완료한 부분 결과는 전체 작업이 끝나기 전에도 분석 화면에 표시됩니다.
+
+## 저장 계층
+
+| 위치 | 내용 |
+| --- | --- |
+| 서버 데이터 디렉터리, 기본 `.cluevia/` | SQLite, 업로드 원문, 작업과 기록, 온톨로지·그래프·근거 |
+| 브라우저 IndexedDB와 탭 초안 | 분석 시작 전 요청·첨부 복구용 임시 사본 |
+| 브라우저 `localStorage` | 수동 카드 배치, 화면 상태, 명시적으로 선택한 브라우저 저장 그래프 |
+
+기본 저장소는 서버이므로 같은 서버에 연결한 다른 브라우저에서도 저장 그래프를 조회합니다. 단일 공유 워크스페이스이며 사용자별 자료 분리는 제공하지 않습니다.
+
+## 실행 방식
+
+`npm run dev`와 `npm run preview`는 Vite에 제품 API를 연결합니다. `npm run build` 후 `npm start`는 Node 서버가 빌드된 화면과 API를 함께 제공합니다. 같은 데이터 디렉터리를 사용하는 서버를 동시에 여러 개 실행하지 않습니다.
+
+`dist/`만 정적으로 올리면 서버 작업과 저장 API가 실행되지 않습니다. 문서의 `docs/out/`은 API 없이 정적으로 제공할 수 있습니다. [배포 범위](/docs/development/deployment)를 참고하세요.
+
+## 알고리즘 경계
+
+추출 결과의 의미는 [자료 구조화](/docs/algorithms/extraction), 원문·참조의 유효성은 [데이터 검증](/docs/algorithms/validation), 화면상 위치와 표시 집합은 [그래프 배치](/docs/algorithms/board-layout)와 [검색과 캐시](/docs/algorithms/exploration)에서 다룹니다.

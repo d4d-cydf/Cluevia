@@ -1,0 +1,8 @@
+{
+  "kind": "analytical-illustration-not-empirical-evaluation",
+  "supportCurve": { "fixedSecondScore": 0.6 },
+  "sharedEvidence": { "a": 0.8, "b": 0.7, "c": 0.6 },
+  "likelihoodRatio": { "priorProbability": 0.2 },
+  "candidateGrowth": { "choicesPerRequirement": [2, 3, 5], "maxRequirements": 10 },
+  "workedExample": { "receipt": 0.9, "independentReceipt": 0.75, "mapping": 0.8, "verifiedMapping": 0.95, "threshold": 0.8 }
+}

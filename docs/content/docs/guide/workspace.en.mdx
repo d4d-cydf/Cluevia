@@ -1,0 +1,79 @@
+---
+title: "Using the Workspace"
+description: "Switch between case archives and activities and conversations in a single sidebar, and explore evidence in a wide graph."
+---
+
+The new analysis opens as one integrated case in `/analysis/:jobId`. Public examples and manually imported graphs are opened with `/case/:graphId/overview`. The existing `/board`·`/lanes` links can be used as is, and the previous `/timeline` link moves to Overview.
+
+## Analysis progress and records [#분석-진행과-기록]
+
+If you enter article addresses one per line in **Paste source text or URLs** on the home page, ontology will read the open HTML/text body before design. Processes up to 8 links and stores the read text and original address together. If some links are blocked, we continue to analyze them with the read material and leave the reasons for their omission in the results. If all links are not read, you can indicate the reason before calling the model and try again. For bodies that are only displayed as Login/Block/PDF/Script, you may need to attach the text yourself.
+
+If the data has been reviewed normally but there is insufficient relevant evidence, the completed results and reasons for judgment are kept instead of analysis errors. Actual reading, model, and verification errors are displayed separately.
+
+Check the ontology design, data preparation, extraction, evidence validation and storage steps in the left panel. **ACTIVITY** accumulates the actual processing messages and times reported by the server, and processing instructions show the role and elapsed time of the current step. If the total number of segments is not confirmed, the progress percentage will not be displayed.
+
+The **Graph Preparation Screen** is shown before the first result. The actual graph appears from the part where verification and saving is completed, and subsequent saved results are automatically reflected. During updates, existing graphs and selections are maintained. If the update fails, it will display the previous results and reload instructions.
+
+**Analysis record** corresponds to the original text processing section. Select **Records · N** from the top information icon to open **Analysis Records** to distinguish between results with no objects and sections that have not yet been processed. If you resume after failure or cancellation, the remaining sections will be processed while maintaining the completion record.
+
+## Working with multiple cases together [#여러-케이스-함께-작업하기]
+
+Even during analysis, you can enter separate requests and data as **New case** in the archive or **NEW CASE** at the top. Existing analyzes will continue to run on the server. From Home, you can check the status of your background analysis and return to the case you want in your archive. Moving to a different case or refreshing does not cancel a running analysis.
+
+The default setting is to run two cases simultaneously. If there are no execution slots, new cases are placed on standby, and up to 5 running and waiting tasks are accepted. Canceling one case does not affect the execution and save results of other cases. Data, questions, and scope are separated by case.
+
+**New case** resets the draft verification question being entered and opens a new input. You can retrieve draft verification questions that you haven't submitted yet by returning home or refreshing via the logo. Analysis that has already been started on the server will not be erased by any action.
+
+## Screen composition [#화면-구성]
+
+| area | Display contents |
+| --- | --- |
+| left sidebar | Change **Case library ↔ Current case** with the toggle icon to the left of the title. Two panels side by side take up no space. Case mode shows analysis activities or conversations from completed integrated cases. |
+| central work screen | In the **Overview** of **Graph**, you only see the objects and relationships that directly answer your question. If it's difficult to answer with a graph, we'll display a short report that you can read from the conclusion. Verification conditions·judgments·evidence gap for completed or failed cases are checked in the **Review** tab, and the failure status is maintained as is. |
+| Details window | When you select an object/relationship, a detail window opens smoothly above the graph. Switch content to **Details**, **Summary**, **Sources**, and **Records** of integrated cases. Press **×**, `Escape`, or an empty space in the graph to close it, retaining the graph size and selection. |
+| case information | Click the information icon at the top to open the details window. In the **Summary**, check the questions, confirmed analysis purpose, scope, desired results, and ontology. There is no separate bottom description or session footer. |
+
+## Three views [#세-가지-보기]
+
+| view | How to read |
+| --- | --- |
+| Overview | Simply show only the objects and relationships that directly answer your question. For example, if you are looking for a transshipment ship, you will be connected to ships that have a transhipment relationship specified in the data. If there is no answer to graph, we display a short report containing the conclusion, key evidence, and limitations of confirmation. |
+| Board | Follows relationships between objects. Drag the card to adjust its position. |
+| Lanes | Compare types and connections by group column. |
+
+The order is **Overview → Board → Lanes**, and new cases show the Overview first. Overview selects and displays relationships corresponding to direct answers from the saved graph and does not request separate model execution or basis diagnosis. Possession and location relationships that are unrelated to the question, simple encounter and proximity relationships in questions about transshipment, and inference, denial, withdrawal, and uncertain relationships are not presented as answers. The explicit relationship linked to source is also a statement written in the data and is not an automatic factual verification. When you select an object or relationship, you can see existing details and source. The entire graph remains in Board / Lanes, and the verification logic and basis evidence gap remains in Review.
+
+Short reports select conclusions and evidence relevant to your question from existing sources, and pressing source opens the original record. Answers that are difficult to express with connecting lines, such as quantity or event details, can also be read in writing. If there is insufficient data, we briefly state what cannot be confirmed and do not conclude that transshipment occurred based on simple encounters or estimates. Progress guidance is maintained during analysis and search guidance is maintained when no search results are found.
+
+Distance on the screen is not a geographic distance or relationship strength score. If you remove the Timeline tab, you will retain saved incident data and `events` in the JSON export.
+
+Adjust the screen by zooming in/out and **Fit**. The drag position is saved for each case/view of the current browser, and the coordinates are not synchronized to other browsers.
+
+**Focus** hides the sidebar and allocates the entire screen to the current graph. Restore the original screen and sidebar state with **Exit focus** or `Escape`. Selection and graph placement are maintained, while analysis continues. On mobile, the graph is displayed first and activities and conversations are opened in the sidebar.
+
+## Search and big graphs [#검색과-큰-그래프]
+
+Search uses the text of the object's name, type, description, attribute values, and relationships and events. Objects at both ends of a matched relationship also remain as context. Full-text search is a separate search function in case conversations.
+
+For large graphs, use type, connection range, and page to select items to display at once. It separates the total count from the currently visible count and does not truncate save data or exports. You can narrow it down to a direct or two-step connection of the selected objects.
+
+The exact representation set and upper bounds are described in [Search and Cache](/en/docs/algorithms/exploration).
+
+## Verify basis and claim [#근거와-주장-확인]
+
+When you select an object, relationship, or event, properties and source are displayed in **Details** in the details window above the graph. When you open **Records of Evidence**, you will see the original sections and citations on the History screen in the same window. The saved original text can be read by turning the pages. Displays differences when property values ​​for the same object differ across records.
+
+The relationship `reported`/`inferred` is a way of expressing evidence, and `claim.stance` is a state of claim·denial, withdrawal, uncertainty. The review status left by the user is separate. Neither indication constitutes automatic verification of fact.
+
+## Case conversations and archives [#케이스-대화와-보관함]
+
+Conversations in completed cases are answered by finding saved records and related original text. It uses the selection object as context and can be viewed by opening the citation history. You cannot assume that material that is not retrieved or not passed to the model is not true.
+
+The case conversation fills the remaining sidebar height; only the message list scrolls, while the composer stays at the bottom. Switching to the archive and back preserves the draft question and conversation state. **Case context** shows the question, and **Activity** opens the recorded analysis progress. While a response is being prepared, **Thinking** displays the server-reported progress and number of referenced records. Supporting passages can be inspected in the expandable **Sources** section.
+
+Open and close the entire sidebar with the toggle to the left of the logo. When you select an existing case, the same sidebar switches to the activities and conversations for that case. Re-open the library using the icon to the left of the title and select another case. There are no duplicate collapse buttons inside the desktop, and the mobile panel can be closed with **×**, outside area, or `Escape`.
+
+The storage bin's trash can deletes the case, so please use [Back up first](/en/docs/guide/import-export) for the data you want to keep.
+
+Tabs, buttons, and short status names use English. Analysis explanations, evidence judgments, errors and cautions are displayed in Korean, and the original text and user questions are not translated.

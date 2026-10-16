@@ -82,11 +82,13 @@ test('selected and custom answers become an editable confirmed brief before any 
   await expect(page).toHaveURL(`/analysis/${job.id}`);
   expect(uploads).toBe(1); expect(submissions).toHaveLength(1);
   expect(submissions[0]).toEqual({ question, documents: [], uploadIds: ['uploaded-trades'], analysisBrief: { ...brief, scope: editedScope, answers: requests[1].answers } });
-  await page.getByText('확정한 분석 범위', { exact: true }).click();
-  await expect(page.getByLabel('AI analysis activity', { exact: true })).toContainText(editedScope);
+  if (await page.getByRole('button', { name: '사이드바 열기', exact: true }).isVisible()) await page.getByRole('button', { name: '사이드바 열기', exact: true }).click();
+  await page.getByLabel('분석 세션 설명', { exact: true }).locator('summary').click();
+  await expect(page.getByLabel('분석 세션 설명', { exact: true })).toContainText(editedScope);
   await page.reload();
-  await page.getByText('확정한 분석 범위', { exact: true }).click();
-  await expect(page.getByLabel('AI analysis activity', { exact: true })).toContainText(editedScope);
+  if (await page.getByRole('button', { name: '사이드바 열기', exact: true }).isVisible()) await page.getByRole('button', { name: '사이드바 열기', exact: true }).click();
+  await page.getByLabel('분석 세션 설명', { exact: true }).locator('summary').click();
+  await expect(page.getByLabel('분석 세션 설명', { exact: true })).toContainText(editedScope);
 });
 
 test('a clear request still requires confirmation and does not invent evidence for a prompt-only job', async ({ page }) => {

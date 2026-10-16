@@ -1,0 +1,87 @@
+---
+title: "The Evidence Model"
+description: "Cluevia's data model divides objects, relationships, events, and source and returns all interpretations to the original text."
+---
+
+Cluevia's graphs are documents that organize data to answer questions. You can read the relationship by following a line, and check what data the relationship comes from by pressing the source number.
+
+## One question, six components [#하나의-질문-여섯-가지-구성-요소]
+
+| component | What you record | example |
+| --- | --- | --- |
+| Object · `nodes` | Things to look for: people, organizations, ships, places, etc. | Vessel subject to investigation |
+| Relationship · `edges` | Connection between two objects and their interpretation | A ship is reported to have visited a specific port |
+| Incident · `events` | The date or period of time specified in the material. | Date the report was published |
+| source · `sources` | Material title, link, excerpt, publication information | official report |
+| Analysis · `findings` | Summary of questions related to the question | Sentences that describe multiple objects and relationships together |
+| Limit · `limitations` | Range that cannot be confirmed with data | Location history alone does not reveal transaction details |
+
+`groups` provides a name and color to classify the object. Group colors are for screen reading and do not indicate confidence or risk level.
+
+## When reading relationships [#관계를-읽을-때]
+
+The relationship must have a state of `reported` or `inferred`.
+
+| status | meaning | screen representation |
+| --- | --- | --- |
+| `reported` | Data directly reported relationships | General connection lines and status descriptions |
+| `inferred` | Relationships interpreted based on data | Dotted lines and reasoning explanations |
+
+<Callout title={"There is a difference between having source and being proven"}>
+`reported` does not mean that Cluevia has independently verified the facts. `inferred` Again, it is not a probability or a definite decision. The description of the relationship, the original text, and the limitations of the graph must be read together.
+</Callout>
+
+For example, a record of the proximity of two ships may serve as a basis for explaining an encounter. The contents of cargo transfer or transaction cannot be determined based on those records alone. The fact that objects are placed close together in a graph has no geographical significance.
+
+## Graph that does not break away from the source [#출처에서-떨어져-나가지-않는-그래프]
+
+Object, relationship, event, and analysis each require at least one `sourceIds`. All references must physically exist within `sources` of the document. Both ends of relationships connecting nodes, objects pointed to by events, and relationships pointed to by analysis are also verified in the same way.
+
+```text
+분석 문장 → 관련 객체와 관계 → 출처 ID → 자료 제목·발췌·원문 링크
+```
+
+This verification ensures that the connection structure is consistent. A person would have to check it against the original text to see if source actually supports claim. Exact textual citations and identification basis checks are also applied to model extraction, but semantic accuracy is not guaranteed.
+
+## Material claims and user reviews [#자료의-주장과-사용자-검토]
+
+The `claim.stance` of the relationship preserves the claim·denial, withdrawal, and uncertainty that appears in the data. If there is a conflicting claim in the same object, it is recorded separately and automatic fact determination is not made.
+
+Users can leave separate review status and notes for relationships. The attitude of claim in the original text, `reported`/`inferred` in the extract, and the user review results are different information.
+
+The server also stores a hash of the quoted text and UTF-16 location candidates. Repeating the same phrase maintains ambiguity. In the merge case, concatenate saved object IDs but does not merge new objects because they have the same name.
+
+## Only on the timeline if there is a date [#날짜가-있을-때만-타임라인에]
+
+Event dates are not created just because there is an object or relationship. If there is no date in the data, it is a valid graph even if set to `events: []`. In this case, the Timeline shows a status of no events with a date.
+
+The event has a start date `date` and an optional end date `endDate`. The end date must be the same as or later than the start date. The date is recorded in `YYYY-MM-DD` and the time is recorded in ISO format including the time zone.
+
+## The same document from three perspectives [#같은-문서를-세-가지-관점으로]
+
+| view | standard | Good question to read |
+| --- | --- | --- |
+| Board | Automatic placement based on relationships between objects | What is connected to what? |
+| Lanes | Classification according to `groups` | What types of objects appear? |
+| Timeline | The stated date and time period of the event | What happened and when? |
+
+All three views use the same `GraphDocument`. Switching views does not result in a new analysis of the data or a re-call of the model. The emphasis of the `highlighted` relationship is also an indication given by the author and is not an automatic confidence score.
+
+## Graph creation path [#그래프의-작성-경로]
+
+`origin` indicates the path in which the document was created.
+
+| value | screen display | meaning |
+| --- | --- | --- |
+| `published-source` | PUBLIC SOURCES | Examples constructed from open literature |
+| `imported` | IMPORTED GRAPH | Graph imported from file |
+| `codex`, `jev`, `structured` | Show analysis path | Graph created from document extraction, Jev, and table conversion |
+| `aip` | Previous AIP creation path | Graphs generated from existing Foundry adapters |
+| `demo` | DEMO | demo document |
+
+Once the file is imported, it is saved as `imported` regardless of its previous creation path. These marks provide authoring directions and do not certify the accuracy of the content.
+
+<Cards>
+  <Card title={"GraphDocument contract"} description={"Check all fields, referencing rules and valid minimum examples."} href="/docs/reference/graph-document" />
+  <Card title={"Application Architecture"} description={"We examine the flow from data input to verification, storage, and screen display."} href="/docs/concepts/architecture" />
+</Cards>

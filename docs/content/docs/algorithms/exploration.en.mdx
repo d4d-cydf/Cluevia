@@ -1,0 +1,76 @@
+---
+title: "Search and Caching"
+description: "Expand around selections, define display sets by search/page, and reuse screen calculations and server-extracted results."
+---
+
+Graph navigation selects the part of the saved data to display. Searching, switching views, and zooming in and out do not call the model again. Original text search of case conversations and graph screen search are separate functions.
+
+## Create a set of representations of a large graph [#큰-그래프의-표시-집합을-만든다]
+
+If there are more than 200 objects, 1,000 relationships, or 500 events, `GraphRenderer` displays a subgraph of `exploreGraph`. Full save data and exports retain the original items.
+
+### Expands around the selection as a starting point [#선택을-시작점으로-주변을-확장한다]
+
+Object selection uses that object, relationship selection uses both end objects, and event selection uses related objects as the starting set. If the connection range is 1 or 2, then at each step we go through the entire relationship and add the ends that touch the previous set.
+
+```text
+A → B → C, 시작 집합 {A}
+1단계: {A, B}
+2단계: {A, B, C}
+```
+
+Navigation expands the neighborhood regardless of the relationship direction. Because each step is based on a copy of the previous set, multiple steps are not expanded in a single traversal. Depth 0 is the entire list.
+
+### Apply search and type conditions [#검색과-유형-조건을-적용한다]
+
+Search terms and object name, type, description, and attribute values are compared as substrings after NFKC normalization and lowercase conversion. Search targets for relationships and events include:
+
+| item | search string |
+| --- | --- |
+| relationship | Name/Description |
+| Events | Name/Description/Start Date |
+
+If relationships or events match, related objects are also included in the candidates. Currently, only lowercase conversion is applied to relationship/event strings, so the normalization method is not completely the same as that of objects.
+
+The selected starting object remains independent of the filter. Once you've scoped a connection, its neighbors remain in context even if they don't directly match your search term, but the type filter is applied.
+
+### Create a page and limit relationships [#페이지를-만들고-관계를-제한한다]
+
+The default object display upper limit is 200, and the function arguments accept a range of 20–300. Pin up to 20 starting objects and divide the remaining space into pages.
+
+It gathers relationships from both ends within the selected object set, sorts the selection relationships and search match relationships first, and then displays up to 1,000. An incident includes one of its related objects if it is in the display set, and displays up to 500 of them. It guides you to the number of hidden relationships and does not delete the original.
+
+## Emphasis on consistent context within the canvas [#캔버스-안에서는-일치-맥락을-강조한다]
+
+In small or projected graphs, `GraphCanvas` clearly displays the objects that matched the search term, both ends of the match relationship, and the objects in the match event. The rest are dimmed. String comparison in Canvas is based on lowercase conversion and is separate from NFKC processing in projection functions.
+
+If both ends of a relationship are in the matching set, the relationship also remains clear. The number of matches on the screen may include these context objects. The key relationship toggle uses the notation `highlighted` and does not compute the shortest path.
+
+If there are more than 100 objects, DOM rendering will be skipped for cards that fall outside the surrounding margins of the screen. Cards being selected and dragged are maintained, and the entire relationship line is not virtualized in the same way.
+
+## Reuse screen calculations and placement states [#화면-계산과-배치-상태를-재사용한다]
+
+| means | to keep |
+| --- | --- |
+| React `useMemo` | Placement, ID Map, navigation projection while maintaining dependencies such as graphs and views |
+| `priorScene` | Existing coordinates when an object is added to the same Board |
+| `localStorage` | Graph ID/Manual drag coordinates by view |
+
+The current implementation does not have a global `WeakMap` layout cache per graph. Timeline placement is calculated as the graph changes, and the underlying scene is also calculated, so you should not assume that only those calculations are performed when you open the view.
+
+The initial scale limits the fit to scene width to 65–100%. Fit calculates the width and height of the scene to fit within a 28px margin in the viewport and is limited to 2–100%. The normal zoom range is 2–180%.
+
+## Server extraction cache and full-text search [#서버의-추출-캐시와-원문-검색]
+
+[data structuring](/en/docs/algorithms/extraction)'s 7-day cache reuses model extraction results. It is separate from the screen coordinate cache, and the key also changes when ontology·data/processing settings change.
+
+Case conversations use an inverted index of the archived text. Korean two-letter fragments, particle removal, identifiers, and limited synonyms are reflected in the search candidates, and related original texts are found and passed to the model. Semantic embedding search is not used. Objects are not merged because they have the same synonyms.
+
+## Cost and Implementation [#비용과-구현]
+
+The expansion around the selection is `O(DE)` for depth `D` and relation number `E`. Searching scans text and references, and sorting relationship/event candidates takes the worst `O(E log E + T log T)`. Candidate search covers the entire graph, even if you limit the number you display on a page.
+
+- [src/lib/graph-exploration.ts](https://github.com/d4d-cydf/Cluevia/blob/main/src/lib/graph-exploration.ts), [screen test](https://github.com/d4d-cydf/Cluevia/blob/main/tests/analysis-improvements.spec.ts): Navigation screen of large graph
+- [GraphRenderer.tsx](https://github.com/d4d-cydf/Cluevia/blob/main/src/components/graph/GraphRenderer.tsx): Canvas highlighting/placement status/off-screen card processing
+- [server/evidence-search.ts](https://github.com/d4d-cydf/Cluevia/blob/main/server/evidence-search.ts): Original text search token
+- [server/analysis-pipeline.ts](https://github.com/d4d-cydf/Cluevia/blob/main/server/analysis-pipeline.ts): Extract Cache

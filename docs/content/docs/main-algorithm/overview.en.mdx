@@ -1,0 +1,200 @@
+---
+title: "Core Algorithm: Specification and Methodology"
+description: "Cluevia — detecting and addressing evidence gaps through explicit links between claims and evidence."
+---
+
+<Abstract keywords={"Evidence-based reasoning · Why-not Tree · Gap diagnosis · Source provenance · Uncertainty"}>
+
+Extracting relationships among source materials does not, by itself, explain what is still required to reach a particular conclusion. Cluevia decomposes a target claim into logical conditions and evidence requirements, then identifies where the available material fails to satisfy those requirements. The proposed procedure comprises construction of a Why-not Tree, evaluation of candidate evidence combinations through Gap Find, and generation of targeted evidence requests through Gap Fill. Evidence availability, relevance to the claim, event consistency, provenance, and degree of support are assessed separately. Materials that reuse the same observation are not counted as independent evidence. This document specifies the formal contracts and implementation scope. Numerical outputs are support scores under stated models and policies; without separate calibration, they cannot be interpreted as probabilities that the conclusion is true.
+
+</Abstract>
+
+## 1. Introduction [#1-서론]
+
+The difficult problem in reviewing evidence is the logical distance between the data and the conclusion rather than the amount of data itself. For example, notices of expected delivery do not verify actual completion of delivery, and multiple articles requoting the same press release do not equate to multiple independent observations. If these differences are not represented even when objects and relationships are accurately extracted, the density of on-screen connections may be mistaken for the validity of the conclusion.
+
+The questions Cluevia addresses are: **Is a path supporting the goal claim established under the given data and explicit inference rules? If it is not established or cannot yet be confirmed, what data is needed under what conditions.** Therefore, the primary output of the system is not a single conclusion statement, but a set of evidence connections, evaluation status, evidence gap reasons and supplementation requests.
+
+The key to this design lies in three distinctions. First, we separate the existence of data from the support for the corresponding claim. Second, separate cases where one alternative path fails and cases where there is no supporting path of the goal claim. Third, the disqualification decision obtained by completing the inspection is separated from the state in which the judgment is withheld due to data and computational budget constraints. This distinction is necessary not only for the description of evidence gap, but also for determining the scope of subsequent data collection.
+
+## 2. Problem definition and notation [#2-문제-정의와-표기]
+
+The target to be verified, claim, is denoted by H, the currently secured data set is denoted by E, the logical structure is denoted by T, and the decision/event·confidence policy is denoted by Π. One evaluation is performed on snapshot, which fixes the versions of these inputs. New data obtained during evaluation are registered as input in the following snapshot.
+
+| symbol | meaning |
+| --- | --- |
+| H | Goal with specified target, action, period, and scope claim |
+| E | A data set containing actual text or sections of records that can be inspected |
+| T | claim·evidence requirement·Directed acyclic structure composed of logical operators |
+| b | binding connects a specific section of data with evidence requirement |
+| F(v) | A collection of candidate binding sets that can be constructed to meet the needs of node v. |
+| W | Set of supporting paths that pass the relevance, event, and provenance gates |
+| G | Set of gap records with stage, cause, and affected scope |
+| s(v) | support score according to the stated policy. null when unknown |
+| Π | Decision rule, confidence assumption, threshold, search budget and their versions |
+
+**Definition 1 — evidence requirement and Evidence.** evidence requirement describes what facts must be verified, and Evidence refers to the actual records available for review. The fact that a need exists does not mean that the data has been obtained. Evidence leaf does not consist of only URLs, file names, or titles of search results that have not read the text.
+
+**Definition 2 — binding.** The unit of conformity determination is not the entire data, but the connection between a data section and a specific request. This is because the same document may be sufficient evidence for one claim but insufficient for another claim. In binding, the citation location, decision, reason, and decision version are preserved together.
+
+T can be expanded as a tree on the screen, but because the same data or observation is referenced in multiple places, it is treated as a DAG with a shared structure for storage and calculation. claim Circulation of dependencies is not allowed. The cycle discovered in the citation relationship of source is recorded in a separate genealogy graph and the search is terminated. Specific types and referencing rules are defined in [Trees and data contracts](/en/docs/main-algorithm/model).
+
+## 3. Methodology [#3-방법론]
+
+<ResearchPipeline />
+
+### 3.1. Composition of goal claim and logical structure [#31-목표-주장과-논리-구조의-구성]
+
+After normalizing the question into a verifiable claim, describe the subconditions necessary for claim to be established. At this time, claim, which is weaker than the original question, should not be verified instead. ‘Delivered’ and ‘notified that delivery is scheduled’ are separate claim terms.
+
+Each internal node is assigned an AND, OR, or NOT_SUPPORT operator and an explicit inference rule. AND requires every mandatory condition to hold; OR requires at least one eligible alternative path. NOT_SUPPORT is defined as the **AND combination of evidence establishing a negative claim**. It neither treats an unsuccessful search as proof of negation nor computes the probability of a complementary event.
+
+LLM proposes a sub-claim and citation decision. The code checks the validity of references, citations, logical structure, and final calculations. This division of roles is intended to utilize the semantic interpretation of the model while ensuring that free description does not bypass the verification process.
+
+<ResearchDiagram kind="tree" number="2" />
+
+### 3.2. Composition of possible candidates based on current data [#32-현재-자료로-가능한-후보의-구성]
+
+In step 1-3, only the currently secured binding is used. The candidate for the OR node is the union of child candidates, and the candidate for the AND node is a combination of selecting one candidate from each child and combining them. Below, cᵢ refers to a child node, and wᵢ refers to a candidate for that child.
+
+<Equation number="1" label={"Candidate combinations of AND and OR"} tex={String.raw`\begin{aligned} F_{\mathrm{OR}}(v)&=\bigcup_i F(c_i)\\ F_{\mathrm{AND}}(v)&=\left\{\bigcup_i w_i\;\middle|\;w_i\in F(c_i)\;\forall i\right\}\end{aligned}`} />
+
+<CandidateMatrix number="3" />
+
+The candidate set of essential requirements for which we do not yet have data is ∅. If one required child of AND is ∅, the candidate parent is also ∅. This should not be confused with `{∅}`, which is a single candidate established only with empty evidence. Processing that weakens AND by removing missing conditions is also not allowed.
+
+Even if a root candidate cannot be constructed, local diagnosis of already existing data can be preserved. For example, even if other required conditions are missing, the reason remains that the submitted notice of intent does not prove completion claim. The presence of a local diagnosis and the presence of a completed supporting path are reported separately.
+
+### 3.3. Step-by-step evaluation of Gap Find [#33-gap-find의-단계별-평가]
+
+Table 1 shows the relationship between step-by-step judgment and output. 1-3·1-4·1-5·1-8 are the step numbers of the original design, and the remaining numbers are given to describe the entire procedure.
+
+| step | Evaluation target | Judgment and follow-up |
+| --- | --- | --- |
+| 1-1·1-2 | Goals and Logic | Fix the event scope and evidence requirement and verify the logical structure. |
+| 1-3 | Presence of actual data | Organize candidates. If required data is not available, record `EVIDENCE_MISSING`. |
+| 1-4 | Material – claim conformity | Only `SUPPORTED` is passed. The remaining reasons are preserved and diagnosed as `EVIDENCE_INSUFFICIENT`. |
+| 1-5 | Events consistent across candidates | Apply specified metadata rules. Actual collisions are classified as `EVENT_MISMATCH`, and unknown collisions are classified as pending evaluation. |
+| 1-6 | Overlapping observations per parent | Identify identical data and identical observations, but do not arbitrarily merge uncertain duplicates. |
+| 1-7 | source·citation genealogy | Check shared observations with circlesource. source Grade D/E is recorded as `PROVENANCE_UNKNOWN`. |
+| 1-8 | Level of support for the logic as a whole | Reflects shared rationale and dependencies. If sufficient support cannot be confirmed, record `TRUST_WEAK`. |
+| final confirmation | Assess completeness and path | If the evaluation is completed but there is no path to completion, record `CHAIN_UNKNOWN`. |
+
+*Table 1. Judgment order of Gap Find. Detailed rules for each step follow [Gap Find Step-by-step rules](/en/docs/main-algorithm/gap-find).*
+
+When evidence is ineligible, exclude candidates that require it. Continue evaluating other OR alternatives, and retain counterevidence and exclusion reasons in the original records. Do not treat `UNREVIEWED`, a failed model call, or unknown event metadata as a completed finding of counterevidence.
+
+In duplicate testing, the identity of observations is more important than the number of data. Two documents translating the same original text are two files, but they can share one observation. Duplicate proposals from LLM are reviewed through the original text and reasons for decision, and if identical observations are confirmed, they are linked through a shared atom.
+
+<ResearchDiagram kind="gates" number="4" />
+
+### 3.4. Source provenance and confidence aggregation [#34-출처-계보와-신뢰도-집계]
+
+If the conditional likelihood ratio of the new data is 1, the relative support for the existing observations does not change in the established model. Therefore, the existing data is maintained and the data is not counted as support for independence. If likelihood ratio is different from 1, the citation genealogy is checked, but it ends when the original source confirmation condition is satisfied or the finite search budget is reached. When there is no model to estimate likelihood ratio, record it as unknown instead of substituting the number 1. Analysis of likelihood ratio requires model selection and review of uncertainty. [Lund and Iyer, 2017](https://doi.org/10.6028/jres.122.027).
+
+In confidence aggregation, the multiplication equation below is limited to models that can treat children's support independently. Even in the series/parallel confidence model, independence is a condition that justifies the calculation. [NIST serial model](https://www.itl.nist.gov/div898/handbook/apr/section1/apr182.htm), [NIST Parallel Model](https://www.itl.nist.gov/div898/handbook/apr/section1/apr183.htm).
+
+<Equation number="2" label={"Aggregation of support scores under independence assumption"} tex={String.raw`\begin{aligned}s_{\mathrm{AND}}(v)&=\prod_i s(c_i)\\s_{\mathrm{OR}}(v)&=1-\prod_i\bigl(1-s(c_i)\bigr)\end{aligned}`} />
+
+<ResearchPlot kind="support-curves" number="5" />
+
+Distinct source URLs do not establish independence. In particular, the two paths in `(a AND b) OR (a AND c)` share a, so their scores cannot be combined using an independent OR. In an illustrative model where a, b, and c are mutually independent observations with scores 0.8, 0.7, and 0.6, preserving the shared variable gives 0.704. Treating the paths as independent instead inflates the score to 0.7712.
+
+This figure is an example to explain the calculation structure. Combining the source·data coefficients determined by product policy does not mean that the value becomes a corrected probability. If independence is unclear or the coefficient is unknown, a conservative range that matches the assumption or null is returned. Lineage termination rules and section calculations are specified in [source provenance and confidence](/en/docs/main-algorithm/confidence).
+
+### 3.5. Gap Fill and Re-evaluation [#35-gap-fill과-재평가]
+
+Gap Fill is not a routine procedure for repeating additional searches. Derive the missing condition from each evidence gap and request the type, identifier, period, and source of data that can test the condition. The actions in the following table have design correspondences, and automatic search and original text collection from the external Internet should be distinguished from the current implementation scope.
+
+| evidence gap | Target of supplementation | response action |
+| --- | --- | --- |
+| `EVIDENCE_MISSING` | empty required | Search for the data yourself, and request the necessary data if it is difficult to obtain it publicly. |
+| `EVIDENCE_INSUFFICIENT` | Facts and conditions that the data did not meet | Explain the discrepancy between the text and the goal and request additional evidence. |
+| `EVENT_MISMATCH` | Conflicting values in linking rules | Present the inconsistent object, time, location, etc. and explain the ineligibility of the connection. |
+| `TRUST_WEAK` | Bottleneck at support level | Insufficient connections are represented as mini graphs and supplementation evidence is requested. |
+| `PROVENANCE_UNKNOWN` | unconfirmed source | Request a notation of original source or search for verifiable genealogy. |
+| `CHAIN_UNKNOWN` | An unfinished path to the goal | We present three chain completion strategies, including the types of data required. |
+
+*Table 2. evidence gap type and supplementation request response. *
+
+It is not determined that evidence gap has been resolved simply by performing a search or adding data. New data must again undergo existence, suitability, event, source, and confidence checks in a separate version. If the goal or logical structure is changed, the tree version is also updated separately from the simple data supplementation. [Gap Fill Action Instructions](/en/docs/main-algorithm/gap-fill) describes input, completion conditions, and termination rules for each action.
+
+## 4. Interpretation of results and computational limitations [#4-결과의-해석과-계산상의-제약]
+
+An evaluation must be read along three dimensions: **the status of supporting paths, the degree of support, and evaluation completeness**. A complete path may still fall below the support threshold. Conversely, when evaluation is incomplete, the absence of an identified path does not establish that no path exists. None of these states, by itself, means that the target claim is false.
+
+<ResultMatrix number="6" />
+
+The cost of enumerating candidates depends on logical branching. Even a simple AND–OR structure with m required conditions and k alternatives per condition can produce up to kᵐ combinations. Comparing every pair among dₚ materials under parent p requires dₚ(dₚ−1)/2 comparisons. Weighted logical evaluation with shared atoms can also be expensive in the worst case. These expressions describe combinatorial structure; they are not empirical claims that observed runtime always scales with these bounds.
+
+<Equation number="3" label={"Distinct alternative combinations and parent-specific comparison pairs."} tex={String.raw`\begin{aligned}|F(H)|&=\prod_{i=1}^{m} k_i\quad(=k^m\text{ if }k_i=k)\\N_{\mathrm{pairs}}(p)&=\binom{d_p}{2}=\frac{d_p(d_p-1)}{2}\end{aligned}`} />
+
+<ResearchPlot kind="candidate-growth" number="7" />
+
+Therefore, the candidate, status, visit, and depth budgets are specified, and when the budget is reached, the unassessed scope is left. Cache and lazy evaluation are a means of reducing cost, but they are not a basis for dropping essential requests or changing incomplete to complete. The existence of a route that has already been identified can be reported, but to confirm the absence of a route, the evaluation necessary for that determination must be completed.
+
+## 5. Implementation scope and verification [#5-구현-범위와-검증]
+
+### 5.1. Scope of current implementation [#51-현재-구현의-범위]
+
+The current implementation proposes a logical structure and citation decision based on archived data of completed or failed cases, and performs candidate evaluation, evidence gap creation, full-text search, user supplementation, and version reevaluation after contract verification. source provenance checks within the connection registered with snapshot. Automatic collection through external search providers and web-wide source tracking have not been implemented.
+
+Because automatic logic generation uses limited excerpts, it does not assume that the entire material has been read. source Coefficients, thresholds, and independence are also managed with reviewable input assumptions. Responsibilities, APIs, and required acceptance cases for each module are summarized in [Implementation order and inspection standards](/en/docs/main-algorithm/implementation).
+
+### 5.2. Evaluation Design [#52-평가-설계]
+
+The contract verification of the algorithm and the accuracy of its meaning judgment on actual data must be evaluated separately. The former can be confirmed by reproducible examination of the fixation snapshot. The latter requires evaluation data specifying the judgment criteria and independent review. The following items are evaluation plans and do not imply accuracy or improvement rates that have not yet been reported.
+
+| evaluation questions | Observation Item | Compare and Control |
+| --- | --- | --- |
+| Correctly detects missing prerequisites | evidence gap Matching type, scope of influence, and cause path | AND/OR/NOT_SUPPORT case with correct answer condition specified |
+| Aren’t incompletes mistaken for absences? | Evaluation status and chain status | Cases of injecting budget exhaustion, non-review, and failure to read |
+| Don't duplicate observations increase your score? | Changes in number of shared atoms and support score | Comparison of before and after copying and requoting the same original text |
+| Preserves event linking rules | Expected value, observed value, reason for discrepancy | Cases of visual conflict with same name/different identifier |
+| Is the actual decision reasonable? | Reviewer agreement on suitability·counterevidence·evidence gap | Separate actual data evaluation, adjustment procedure for discrepancies |
+| Are the usage costs within an acceptable range? | Delay/call count/token/cache hit per stage | Repeated execution with fixed data size, format, model, and policy |
+
+*Table 3. Evaluation plan that separates the accuracy of the contract, the validity of the meaning judgment, and the cost of execution.*
+
+[Full running example](/en/docs/main-algorithm/worked-example) is a configuration example showing changes in candidates and evidence gap due to the addition of data. The scores and thresholds in the example are for illustration purposes only and are not used as empirical evaluation results.
+
+### 5.3. Observation of secondary processing time [#53-보조-처리-시간의-관찰]
+
+The repository contains a single input observation record**measuring only the**ontology design and schema validation steps upstream of this evaluation process. The design time for the old high setting for 188 character input was about 121.9 seconds, and the new run with medium, concise schema, and prompts was about 84.1 seconds. Cache reuse for the same design input was recorded at approximately 1.67 ms, with no new model calls. This is not a measure of the execution time or semantic accuracy of the entire extraction·Gap Find.
+
+In this comparison, multiple settings were changed simultaneously and the baseline run was historical. Therefore, observed differences cannot be attributed to the effect of effort alone or used to predict processing times for other inputs. Measurement range and reuse conditions can be found in [ontology Design/extraction document](/en/docs/algorithms/extraction). Raw values ​​and limits are stored in `docs/evaluations/ontology-design-medium-cache.json` in the repository.
+
+## 6. Discussion and limitations [#6-논의와-한계]
+
+The first limitation to consider is the appropriateness of the logical structure itself. Even if you calculate correctly for a poorly designed evidence requirement, the result does not provide an appropriate answer to the original question. Therefore, the inference rules and event scope must be able to be read and modified, and the structure proposed by the model is not excluded from review.
+
+The second limitation is the dependence of source on observations. Data in different formats or publishing entities can share the same observations, and shared parts and independent observations can exist together within one document. If this distinction cannot be confirmed, an honest representation of the unknown and range takes precedence over the precision of a single score.
+
+A third limitation concerns the interpretation of numerical scores. Source grades and material-quality coefficients are not, in themselves, statistical estimators. Interpreting them as probabilities of truth requires a separate model, calibration, and validation data. This document does not claim that such validation has been completed.
+
+Lastly, evidence gap supplementation is not necessarily a successful process. Private records, inaccessible original text, and unrecoverable visual information may remain unidentified. In this case, the role of the system is not to force a conclusion but to explain the remaining conditions and scope of exploration.
+
+## 7. Conclusion [#7-결론]
+
+Cluevia goes beyond showing data relationships and records the necessary connections up to the goal claim as well as conditions that have not yet been met. The practical significance of this approach is to trace the basis for judgment and specify the next object of review. Future evaluations should verify the actual accuracy of logical design and meaning determination, the interpretability of support score, and the utility of supplementation demands in the investigation process, respectively.
+
+## References [#참고문헌]
+
+1. NIST/SEMATECH. *e-Handbook of Statistical Methods*, §8.1.8.2, [Series model](https://www.itl.nist.gov/div898/handbook/apr/section1/apr182.htm). Calculation of confidence of independent series components.
+2. NIST/SEMATECH. *e-Handbook of Statistical Methods*, §8.1.8.3, [Parallel or redundant model](https://www.itl.nist.gov/div898/handbook/apr/section1/apr183.htm). confidence calculation of independent parallel components.
+3. Lund, S. P., & Iyer, H. (2017). [Likelihood Ratio as Weight of Forensic Evidence: A Closer Look](https://doi.org/10.6028/jres.122.027). *Journal of Research of the National Institute of Standards and Technology*, 122, Article 27.
+
+These references support the discussion of modeling assumptions and likelihood-ratio interpretation. They do not validate Cluevia’s six gap categories, its NOT_SUPPORT rule, or the performance of the complete algorithm.
+
+## Appendix A. Application of Design Specification [#부록-a-설계-명세의-적용]
+
+The **confirmed requirements** are the stage sequence, the six gap categories and their corresponding actions, the eligibility gate that admits only supporting evidence, and the AND semantics of NOT_SUPPORT. **Operational rules** specify contracts needed for execution, including references, versions, and unknown states. **Proposed policies** cover choices requiring further review, such as source-grade definitions, coefficients, thresholds, and search budgets. This document is design specification v0.1. Implementation status is distinguished from empirical validation on real evidence.
+
+| Detailed specifications | Scope covered |
+| --- | --- |
+| [Tree Model and Data Contracts](/en/docs/main-algorithm/model) | Logical nodes, data types, binding, enums and versions |
+| [Gap Find: Evaluation Rules](/en/docs/main-algorithm/gap-find) | Candidate composition, eligibility propagation, event matching and overlap |
+| [Source Provenance and Confidence](/en/docs/main-algorithm/confidence) | likelihood ratio, Genealogy End, Shared Basis and Calculation Assumptions |
+| [Gap Fill: Remediation Actions](/en/docs/main-algorithm/gap-fill) | evidence gapData requests, completion conditions and re-evaluation |
+| [Worked Example](/en/docs/main-algorithm/worked-example) | Step-by-step calculation of configuration examples |
+| [Implementation and Acceptance Criteria](/en/docs/main-algorithm/implementation) | Actual module/API, pseudocode and acceptance criteria |

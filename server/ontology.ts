@@ -166,7 +166,14 @@ export function parseExtraction(value: unknown, input: GraphGenerationInput, def
     references([relation.source, relation.target], entityIds, `relationship ${relation.id}`);
     checkEvidence(relation.evidence, `relationship ${relation.id}.evidence`);
     if (relation.claim) {
-      relation.claim = readRelationClaim(relation.claim);
+      try { relation.claim = readRelationClaim(relation.claim); }
+      catch (error) {
+        // Shape checks above cover the claim contract; the shared reader checks
+        // date semantics. Classify those known validation failures consistently
+        // so bounded recovery can retain unrelated valid fragments.
+        if (error instanceof Error && ['주장에는 실제 ISO 날짜가 필요합니다.', '관계 유효 기간이 역전되었습니다.'].includes(error.message)) fail(`relationship ${relation.id}.claim`, error.message);
+        throw error;
+      }
       for (const field of ['attributedTo', 'derivedFrom'] as const) {
         const value = relation.claim[field];
         if (value && !relation.evidence.some(item => containsIdentifier(item.quote, value))) fail(`relationship ${relation.id}.claim.${field}`, '주장 주체와 재인용 출처는 인용문에 있어야 합니다.');
@@ -259,7 +266,7 @@ function groundedIdentity(quote: string, value: string): boolean {
   return false;
 }
 
-function containsIdentifier(quote: string, value: string): boolean {
+export function containsIdentifier(quote: string, value: string): boolean {
   return quote.includes(value) && new RegExp(`(^|[^A-Za-z0-9])${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^A-Za-z0-9])`, 'u').test(quote);
 }
 /** Only identifiers with stable namespaces and exact quoted values can join unrelated sources. */

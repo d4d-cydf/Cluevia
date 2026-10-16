@@ -1,0 +1,79 @@
+---
+title: HTTP API
+description: 현재 제품 서버의 분석 확인·업로드·작업·케이스·그래프·온톨로지 API.
+---
+
+제품 API는 `server/product-api.ts`에 있으며 개발 서버·미리보기와 `npm start`에 연결됩니다. 모든 경로는 앱과 같은 호스트의 `/api/` 아래에 있습니다.
+
+## 연결과 인증
+
+`GET /api/system/status`로 연결·엔진·저장소 상태를 확인합니다. 워크스페이스 키가 설정되어 있으면 요청에 `Authorization: Bearer <워크스페이스 키>`를 사용합니다. 키가 없으면 실제 loopback 연결만 API를 사용할 수 있습니다.
+
+현재 앱은 공유 워크스페이스입니다. 사용자별 계정·권한·자료 분리 API는 제공하지 않습니다.
+
+## 분석 확인과 자료 업로드
+
+| 요청 | 동작 |
+| --- | --- |
+| `POST /api/analysis/clarify` | 질문·자료 미리보기·이전 답변으로 확인 질문 또는 분석 범위 반환. 파일 업로드·작업 생성 없음 |
+| `POST /api/documents/upload` | 원시 파일 본문 업로드 → `201 {document}` |
+| `GET /api/documents/:id` | 업로드한 자료의 크기·구간 정보 |
+
+업로드는 `Content-Type: application/octet-stream`과 `X-File-Name: encodeURIComponent(name)`을 사용합니다. 자료는 UTF-8 텍스트여야 합니다. 기본 파일 크기 상한은 없으며 `CLUEVIA_MAX_UPLOAD_MB`로 제한할 수 있습니다.
+
+## 작업 생성과 조회
+
+```json
+{
+  "question": "자료에 등장하는 객체와 관계를 정리해줘",
+  "documents": [],
+  "uploadIds": ["upload-업로드응답의ID"]
+}
+```
+
+위 요청 구조에서 업로드 ID는 실제 업로드 응답 값으로 바꿉니다. 작은 인라인 자료는 `documents: [{id,name,text,url?}]`로 전달할 수 있습니다. 선택적 `analysisBrief`에 확정한 목적·범위·결과·답변을 전달합니다.
+
+| 요청 | 동작 |
+| --- | --- |
+| `POST /api/jobs` | 작업 등록 → `202 {job}` |
+| `GET /api/jobs`, `GET /api/jobs/:id` | 작업 목록과 상태 |
+| `POST /api/jobs/:id/cancel` | 진행 중 분석 취소, 저장한 결과 유지 |
+| `POST /api/jobs/:id/resume` | 완료하지 않은 구간 재개 |
+| `DELETE /api/jobs/:id` | 케이스와 관련 기록 삭제 |
+
+인라인 문서는 각각 50,000자, 합계 150,000자 이하입니다. 인라인과 업로드 자료를 합해 최대 10개입니다. 실행·대기 작업 합계는 최대 5개이며 전체 작업은 순차 실행합니다.
+
+## 통합 케이스와 근거
+
+| 요청 | 동작 |
+| --- | --- |
+| `GET /api/jobs/:id/case` | 통합 그래프, 기록 목록, 근거 연결과 속성 차이 |
+| `GET /api/jobs/:id/records/:number` | 해당 기록의 그래프·근거·원문 첫 페이지 |
+| `GET /api/jobs/:id/records/:number/document?id=...&offset=...` | 기록에 속한 원문 페이지 |
+| `GET /api/jobs/:id/decisions` | 자료별 Jev 판정 내역 |
+| `GET /api/jobs/:id/chat`, `POST /api/jobs/:id/chat` | 케이스 대화 조회·질문 |
+| `POST /api/jobs/:id/claims/:edgeId/review` | 관계 주장에 검토 상태와 메모 저장 |
+
+원문 페이지는 12,000자씩 제공합니다. 원문 offset과 인용 위치의 단위는 UTF-16입니다. 대화 POST에는 `question`과 선택적 `selection: {kind,id}`를 전달합니다.
+
+## 그래프와 온톨로지
+
+| 요청 | 동작 |
+| --- | --- |
+| `GET /api/graphs`, `GET /api/graphs/:id` | 저장 그래프 목록·내용 |
+| `GET /api/graphs/:id/collection` | 같은 작업의 부분 그래프 목록 |
+| `POST /api/graphs/import` | `{graph}` 완성 JSON 검증·저장 |
+| `DELETE /api/graphs/:id` | 독립 그래프 삭제. 분석에 속한 그래프는 케이스 삭제 사용 |
+| `GET /api/ontology` | 온톨로지 목록·통계 |
+| `GET /api/ontology/definitions/:id` | 정의·버전·유형·속성·관계·처리 정책 |
+| `GET /api/ontology/entities?q=&type=&ontologyId=` | 객체 검색 |
+| `GET /api/ontology/entities/:id` | 객체의 주장·관계·근거 |
+| `POST /api/ontology/entities/:id/identity` | 다른 객체와의 동일성 검토 저장 |
+
+## 오류 응답
+
+잘못된 입력은 400, 인증 실패는 401, 다른 사이트의 요청 제한은 403, 없는 자원은 404로 처리합니다. 분석 소속 그래프의 단독 삭제는 409, 업로드 용량 제한은 413, 지원하지 않는 업로드 Content-Type은 415, 대기열·동시 요청 한도는 429를 사용할 수 있습니다.
+
+작업이 등록된 후 발생한 분석 오류는 작업 상태에서도 확인해야 합니다. HTTP 작업 등록 성공이 전체 분석 성공을 뜻하지 않습니다.
+
+정확한 본문과 상태 처리는 [server/product-api.ts](https://github.com/d4d-cydf/Cluevia/blob/main/server/product-api.ts), 브라우저 연결은 [src/services/api-client.ts](https://github.com/d4d-cydf/Cluevia/blob/main/src/services/api-client.ts)를 참고하세요.

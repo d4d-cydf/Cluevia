@@ -1,0 +1,79 @@
+---
+title: "HTTP API"
+description: "Current product server's analysis check·upload·task·case·graph·ontology API."
+---
+
+The product API is located at `server/product-api.ts` and connects to the development server/preview and `npm start`. All paths are under `/api/` on the same host as the app.
+
+## Connection and Authentication [#연결과-인증]
+
+Check the connection, engine, and storage status with `GET /api/system/status`. If your workspace key is set, use `Authorization: Bearer <워크스페이스 키>` in your request. Without the key, only actual loopback connections can use the API.
+
+The current app is a shared workspace. We do not provide an API for separating accounts, permissions, and data for each user.
+
+## Check analysis and upload data [#분석-확인과-자료-업로드]
+
+| request | action |
+| --- | --- |
+| `POST /api/analysis/clarify` | Questions, preview data, check with previous answers, return questions or analysis scope. No file upload/task creation |
+| `POST /api/documents/upload` | Upload raw file body → `201 {document}` |
+| `GET /api/documents/:id` | Size and section information of uploaded data |
+
+Upload uses `Content-Type: application/octet-stream` and `X-File-Name: encodeURIComponent(name)`. Data must be UTF-8 text. There is no default file size upper limit and can be limited to `CLUEVIA_MAX_UPLOAD_MB`.
+
+## Create and view tasks [#작업-생성과-조회]
+
+```json
+{
+  "question": "자료에 등장하는 객체와 관계를 정리해줘",
+  "documents": [],
+  "uploadIds": ["upload-업로드응답의ID"]
+}
+```
+
+In the above request structure, the upload ID is replaced with the actual upload response value. Small inline data can be passed with `documents: [{id,name,text,url?}]`. Deliver the purpose, scope, results, and answers confirmed in the optional `analysisBrief`.
+
+| request | action |
+| --- | --- |
+| `POST /api/jobs` | Register job → `202 {job}` |
+| `GET /api/jobs`, `GET /api/jobs/:id` | Task list and status |
+| `POST /api/jobs/:id/cancel` | Cancel analysis in progress, maintain saved results |
+| `POST /api/jobs/:id/resume` | Resume uncompleted section |
+| `DELETE /api/jobs/:id` | Delete a case and related records |
+
+Inline documents must be 50,000 characters each and 150,000 characters in total. Up to 10 combined inline and uploaded materials. The total number of running/waiting tasks is up to 5, and all tasks are executed sequentially.
+
+## Integrated Case and Evidence [#통합-케이스와-근거]
+
+| request | action |
+| --- | --- |
+| `GET /api/jobs/:id/case` | Integrated graphs, history lists, evidence connections and attribute differences |
+| `GET /api/jobs/:id/records/:number` | Graph, evidence, and original text first page of the record |
+| `GET /api/jobs/:id/records/:number/document?id=...&offset=...` | Original page belonging to the record |
+| `GET /api/jobs/:id/decisions` | Jev judgment details by data |
+| `GET /api/jobs/:id/chat`, `POST /api/jobs/:id/chat` | Case conversation inquiry/question |
+| `POST /api/jobs/:id/claims/:edgeId/review` | Save review status and notes to relationship claim |
+
+Original pages are provided with 12,000 characters each. The unit of original text offset and citation position is UTF-16. In the conversation POST we pass `question` and optional `selection: {kind,id}`.
+
+## Graphs and ontology [#그래프와-온톨로지]
+
+| request | action |
+| --- | --- |
+| `GET /api/graphs`, `GET /api/graphs/:id` | Saved graph list/content |
+| `GET /api/graphs/:id/collection` | List of subgraphs of the same task |
+| `POST /api/graphs/import` | `{graph}` Completed JSON verification and storage |
+| `DELETE /api/graphs/:id` | Delete independent graph. Graphs belonging to analysis use case deletion |
+| `GET /api/ontology` | ontology list/statistics |
+| `GET /api/ontology/definitions/:id` | Definition, version, type, attribute, relationship, processing policy |
+| `GET /api/ontology/entities?q=&type=&ontologyId=` | Object Search |
+| `GET /api/ontology/entities/:id` | Claim, relationship, basis of object |
+| `POST /api/ontology/entities/:id/identity` | Save Review for Equality with Other Objects |
+
+## error response [#오류-응답]
+
+Invalid input is handled as 400, authentication failure is handled as 401, request limit from another site is handled as 403, and missing resource is handled as 404. You can use 409 for exclusive deletion of analysis belonging graphs, 413 for upload capacity limit, 415 for unsupported upload Content-Type, and 429 for queue/simultaneous request limit.
+
+Analysis errors that occur after a task is registered should also be checked in the task status. Successful HTTP task registration does not imply successful overall analysis.
+
+Please refer to [server/product-api.ts](https://github.com/d4d-cydf/Cluevia/blob/main/server/product-api.ts) for accurate text and status processing, and [src/services/api-client.ts](https://github.com/d4d-cydf/Cluevia/blob/main/src/services/api-client.ts) for browser connection.

@@ -5,15 +5,25 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
+    "prebuild": "node scripts/ensure-dependencies.mjs",
     "build": "tsc -b && vite build",
+    "build:all": "npm run build && npm run docs:build",
     "preview": "vite preview --host 0.0.0.0",
     "test:e2e": "playwright test",
-    "test": "node --experimental-strip-types --test src/lib/graph-document.test.ts server/aip.test.ts server/codex.test.ts server/ontology.test.ts server/product.test.ts server/evidence-uploads.test.ts server/jobs.test.ts server/jev.test.ts server/structured-ingest.test.ts server/hybrid.test.ts server/analysis-cache.test.ts server/ontology-schema.test.ts server/generic-ingest.test.ts server/ontology-jev.test.ts server/ontology-product.test.ts server/ontology-builder.test.ts server/jev-decisions.test.ts server/analysis-decisions.test.ts server/analysis-case.test.ts server/clarification.test.ts server/analysis-brief.test.ts server/clarification-api.test.ts server/analysis-improvements.test.ts",
+    "test": "node --experimental-strip-types --test src/lib/graph-document.test.ts src/lib/claim-overview.test.ts src/lib/why-overview.test.ts src/lib/gap-overview.test.ts server/aip.test.ts server/codex.test.ts server/claude.test.ts server/product-config.test.ts server/ontology.test.ts server/extraction-recovery.test.ts server/claim-metadata.test.ts server/association-recovery.test.ts server/product.test.ts server/evidence-uploads.test.ts server/jobs.test.ts server/url-evidence.test.ts server/url-jobs.test.ts server/jev.test.ts server/structured-ingest.test.ts server/hybrid.test.ts server/analysis-cache.test.ts server/ontology-schema.test.ts server/generic-ingest.test.ts server/ontology-jev.test.ts server/ontology-product.test.ts server/ontology-builder.test.ts server/ontology-design-cache.test.ts server/jev-decisions.test.ts server/analysis-decisions.test.ts server/analysis-case.test.ts server/clarification.test.ts server/analysis-brief.test.ts server/clarification-api.test.ts server/analysis-improvements.test.ts server/why-not-engine.test.ts server/why-not-bayes-regression.test.ts server/why-not-phases.test.ts server/why-not-estimation.test.ts server/why-not-service.test.ts src/lib/report-export.test.ts server/report-service.test.ts server/report-api.test.ts",
     "start": "node --experimental-strip-types server/index.ts",
+    "claude:login": "claude auth login",
+    "claude:status": "claude auth status",
     "codex:login": "codex login",
     "codex:status": "codex login status",
     "ontology:build": "python scripts/build_ontology.py",
-    "eval:analysis": "node --experimental-strip-types scripts/evaluate-analysis.ts"
+    "eval:analysis": "node --experimental-strip-types scripts/evaluate-analysis.ts",
+    "docs:install": "npm --prefix docs ci --include=dev --include=optional",
+    "docs:dev": "npm --prefix docs run dev",
+    "docs:build": "npm --prefix docs run build",
+    "docs:preview": "npm --prefix docs run serve",
+    "docs:typecheck": "npm --prefix docs run typecheck",
+    "test:docs": "playwright test --config docs/playwright.config.ts"
   },
   "dependencies": {
     "@openai/codex": "0.162.1",

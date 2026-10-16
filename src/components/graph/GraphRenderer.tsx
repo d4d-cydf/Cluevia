@@ -2,7 +2,8 @@ import { exploreGraph } from '../../lib/graph-exploration';
 import { stanceLabels } from '../../lib/claim';
 import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, KeyboardEvent, PointerEvent } from 'react';
-import type { GraphDocument, GraphEdge, GraphEvent, GraphNode, GraphSelection } from '../../types/graph';
+import type { GraphDecorations, GraphDocument, GraphEdge, GraphEvent, GraphNode, GraphSelection } from '../../types/graph';
+import type { GapType } from '../../types/why-not';
 import { Icon } from '../Icon';
 import './graph-renderer.css';
 
@@ -13,6 +14,9 @@ export interface GraphRendererProps {
   onSelect: (selection: GraphSelection) => void;
   showPath: boolean;
   query: string;
+  decorations?: GraphDecorations;
+  persistedPositions?: Record<string, { x: number; y: number }>;
+  onPositionsChange?: (positions: Record<string, { x: number; y: number }>) => void;
 }
 
 interface Point { x: number; y: number }
@@ -30,10 +34,18 @@ interface TimelineLayout {
 
 const NODE_WIDTH = 182;
 const NODE_HEIGHT = 74;
+const GOAL_WIDTH = 284;
+const GOAL_HEIGHT = 126;
 const MIN_ZOOM = 0.02;
 const DAY = 86_400_000;
 const dateLabel = (date: number | string) => new Date(date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' });
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+const gapLabels: Record<GapType, string> = {
+  EVIDENCE_MISSING: '자료 없음', EVIDENCE_INSUFFICIENT: '근거 부족', EVENT_MISMATCH: '사건 불일치',
+  TRUST_WEAK: '지지 수준 부족', PROVENANCE_UNKNOWN: '원출처 미확인', CHAIN_UNKNOWN: '연결 미완성',
+};
+const nodeSize = (id: string, decorations?: GraphDecorations) => decorations?.nodes[id]?.kind === 'goal'
+  ? { width: GOAL_WIDTH, height: GOAL_HEIGHT } : { width: NODE_WIDTH, height: NODE_HEIGHT };
 
 /** A stable layout is computed from the graph itself, without case-specific IDs. */
 function boardLayout(graph: GraphDocument): SceneLayout {
@@ -126,6 +138,59 @@ function boardLayout(graph: GraphDocument): SceneLayout {
   return { width, height, positions };
 }
 
+/** Explicit review annotations get a central goal without changing graph facts. */
+function centeredBoardLayout(graph: GraphDocument, decorations: GraphDecorations): SceneLayout {
+  const centerId = decorations.centerNodeId;
+  if (!centerId || !graph.nodes.some(node => node.id === centerId)) return boardLayout(graph);
+  const positions = new Map<string, Point>([[centerId, { x: 0, y: 0 }]]);
+  const gaps = graph.nodes.filter(node => node.id !== centerId && decorations.nodes[node.id]?.kind === 'gap');
+  const ordinary = graph.nodes.filter(node => node.id !== centerId && decorations.nodes[node.id]?.kind !== 'gap');
+  function rings(nodes: GraphNode[], firstRadiusX: number, firstRadiusY: number) {
+    let offset = 0; let ring = 0;
+    while (offset < nodes.length) {
+      const count = Math.min(nodes.length - offset, 8 + ring * 4);
+      for (let index = 0; index < count; index++) {
+        const angle = -Math.PI / 2 + index / count * Math.PI * 2 + ring * .17;
+        positions.set(nodes[offset + index].id, { x: Math.cos(angle) * (firstRadiusX + ring * 250), y: Math.sin(angle) * (firstRadiusY + ring * 145) });
+      }
+      offset += count; ring++;
+    }
+    return { x: firstRadiusX + Math.max(0, ring - 1) * 250, y: firstRadiusY + Math.max(0, ring - 1) * 145 };
+  }
+  const gapExtent = rings(gaps, 330, 190);
+  rings(ordinary, gaps.length ? gapExtent.x + 270 : 340, gaps.length ? gapExtent.y + 175 : 215);
+  // Gap and source rings can meet at their diagonals. Resolve full card bounds,
+  // keeping the conclusion fixed and retaining a symmetric scene around it.
+  const ids = [...positions.keys()];
+  for (let pass = 0; pass < 65; pass++) {
+    let overlaps = false;
+    const cells = new Map<string, string[]>();
+    for (const id of ids) {
+      const b = positions.get(id)!; const bSize = nodeSize(id, decorations);
+      const cellX = Math.floor(b.x / 340); const cellY = Math.floor(b.y / 190);
+      for (let x = cellX - 1; x <= cellX + 1; x++) for (let y = cellY - 1; y <= cellY + 1; y++) for (const otherId of cells.get(`${x}:${y}`) ?? []) {
+        const a = positions.get(otherId)!; const aSize = nodeSize(otherId, decorations);
+        const dx = b.x - a.x; const dy = b.y - a.y;
+        const overlapX = (aSize.width + bSize.width) / 2 + 40 - Math.abs(dx);
+        const overlapY = (aSize.height + bSize.height) / 2 + 38 - Math.abs(dy);
+        if (overlapX <= 0 || overlapY <= 0) continue;
+        overlaps = true;
+        const af = otherId === centerId ? 0 : id === centerId ? 1 : .5;
+        const bf = id === centerId ? 0 : otherId === centerId ? 1 : .5;
+        if (overlapX < overlapY) { const move = overlapX * (dx < 0 ? -1 : 1); a.x -= move * af; b.x += move * bf; }
+        else { const move = overlapY * (dy < 0 ? -1 : 1); a.y -= move * af; b.y += move * bf; }
+      }
+      const cell = `${Math.floor(b.x / 340)}:${Math.floor(b.y / 190)}`;
+      cells.set(cell, [...(cells.get(cell) ?? []), id]);
+    }
+    if (!overlaps) break;
+  }
+  const halfWidth = Math.max(470, ...ids.map(id => Math.abs(positions.get(id)!.x) + nodeSize(id, decorations).width / 2 + 85));
+  const halfHeight = Math.max(290, ...ids.map(id => Math.abs(positions.get(id)!.y) + nodeSize(id, decorations).height / 2 + 95));
+  positions.forEach(point => { point.x += halfWidth; point.y += halfHeight; });
+  return { width: halfWidth * 2, height: halfHeight * 2, positions };
+}
+
 function lanesLayout(graph: GraphDocument): SceneLayout {
   const columns = graph.groups.map(group => graph.nodes.filter(node => node.group === group.id));
   const width = Math.max(900, graph.groups.length * 254 + 40);
@@ -176,18 +241,20 @@ function timelineLayout(graph: GraphDocument): TimelineLayout {
   return { width, height: Math.max(580, top + 30), rows, events, ticks, min, max };
 }
 
-function edgeGeometry(edge: GraphEdge, layout: SceneLayout, lanes: boolean, ordinal: number) {
+function edgeGeometry(edge: GraphEdge, layout: SceneLayout, lanes: boolean, ordinal: number, decorations?: GraphDecorations) {
   const source = layout.positions.get(edge.source);
   const target = layout.positions.get(edge.target);
   if (!source || !target) return null;
   if (edge.source === edge.target) return { path: `M ${source.x - 34} ${source.y - 37} C ${source.x - 65} ${source.y - 105}, ${source.x + 65} ${source.y - 105}, ${source.x + 34} ${source.y - 37}`, label: { x: source.x, y: source.y - 83 } };
   const dx = target.x - source.x;
   const dy = target.y - source.y;
-  const factor = Math.min((NODE_WIDTH / 2 + 3) / Math.max(1, Math.abs(dx)), (NODE_HEIGHT / 2 + 3) / Math.max(1, Math.abs(dy)));
-  const ax = source.x + dx * factor;
-  const ay = source.y + dy * factor;
-  const bx = target.x - dx * factor;
-  const by = target.y - dy * factor;
+  const sourceSize = nodeSize(edge.source, decorations); const targetSize = nodeSize(edge.target, decorations);
+  const from = Math.min((sourceSize.width / 2 + 3) / Math.max(1, Math.abs(dx)), (sourceSize.height / 2 + 3) / Math.max(1, Math.abs(dy)));
+  const to = Math.min((targetSize.width / 2 + 3) / Math.max(1, Math.abs(dx)), (targetSize.height / 2 + 3) / Math.max(1, Math.abs(dy)));
+  const ax = source.x + dx * from;
+  const ay = source.y + dy * from;
+  const bx = target.x - dx * to;
+  const by = target.y - dy * to;
   if (lanes && Math.abs(dx) < 1) {
     const side = ordinal % 2 ? -1 : 1;
     const controlX = source.x + side * 125;
@@ -206,37 +273,79 @@ function activateEdge(event: KeyboardEvent<SVGGElement>, callback: () => void) {
 
 function nodeText(node: GraphNode) { return `${node.label} ${node.type} ${node.description} ${Object.values(node.properties).join(' ')}`.toLocaleLowerCase(); }
 
-function GraphCanvas({ graph, view, selection, onSelect, showPath, query }: GraphRendererProps) {
+function GraphCanvas({ graph, view, selection, onSelect, showPath, query, decorations, persistedPositions, onPositionsChange }: GraphRendererProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const [scroll, setScroll] = useState({ left: 0, top: 0 });
   const nodeById = useMemo(() => new Map(graph.nodes.map(node => [node.id, node])), [graph.nodes]);
   const [zoom, setZoom] = useState(1);
   const [viewport, setViewport] = useState({ width: 900, height: 580 });
   const markerId = useId().replace(/:/g, '');
-  const priorScene = useRef<{ id: string; view: string; scene: SceneLayout } | null>(null);
-  const baseScene = useMemo(() => {
-    const candidate = view === 'lanes' ? lanesLayout(graph) : boardLayout(graph);
-    const prior = priorScene.current;
-    if (view === 'board' && prior?.id === graph.id && prior.view === view && [...prior.scene.positions.keys()].every(id => candidate.positions.has(id))) {
-      const occupied = [...prior.scene.positions.values()];
-      for (const [id, point] of candidate.positions) {
-        const saved = prior.scene.positions.get(id);
-        if (saved) candidate.positions.set(id, saved);
-        else {
-          let next = point; let slot = 0;
-          while (occupied.some(other => Math.abs(other.x - next.x) < 210 && Math.abs(other.y - next.y) < 105)) { next = { x: 140 + (slot % 5) * 230, y: 100 + Math.floor(slot / 5) * 125 }; slot++; }
-          candidate.positions.set(id, next); occupied.push(next);
-        }
-      }
-      for (const point of candidate.positions.values()) { candidate.width = Math.max(candidate.width, point.x + 140); candidate.height = Math.max(candidate.height, point.y + 90); }
-    }
-    priorScene.current = { id: graph.id, view, scene: candidate }; return candidate;
-  }, [graph, view]);
-  const positionKey = `cluevia.positions.${graph.id}.${view}`;
+  const gapTypes = [...new Set(Object.values(decorations?.edges ?? {}).map(edge => edge.gapType))];
   const [manual, setManual] = useState<Record<string, Point>>({});
+  const manualRef = useRef(manual); manualRef.current = manual;
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const pan = useRef<{ pointer: number; x: number; y: number; left: number; top: number; moved: boolean } | null>(null);
+  const [panning, setPanning] = useState(false);
+  const initialCamera = useRef({ key: '', interacted: false });
+  const diagnosticState = decorations?.centerNodeId ? decorations.nodes[decorations.centerNodeId]?.state : undefined;
+  const previousDiagnosticState = useRef(diagnosticState);
+  if (previousDiagnosticState.current !== diagnosticState && (previousDiagnosticState.current === 'idle' || diagnosticState === 'idle')) initialCamera.current.interacted = true;
+  previousDiagnosticState.current = diagnosticState;
+  const appliedPositions = useRef({ key: '', signature: '' });
+  const touchedPositions = useRef(new Set<string>());
+  const priorScene = useRef<{ id: string; view: string; centerNodeId?: string; scene: SceneLayout } | null>(null);
+  // Polling may replace descriptions or counts without changing graph topology.
+  // Keep layout work out of those updates and place only genuinely new nodes.
+  const topologyKey = JSON.stringify([graph.id, graph.nodes.map(node => [node.id, node.group]), graph.edges.map(edge => [edge.source, edge.target]), graph.groups.map(group => group.id), decorations?.centerNodeId]);
+  const baseScene = useMemo(() => {
+    if (view === 'timeline') return { width: 940, height: 580, positions: new Map<string, Point>() };
+    const prior = priorScene.current;
+    const nodeIds = new Set(graph.nodes.map(node => node.id));
+    let candidate: SceneLayout;
+    if (view === 'board' && prior?.id === graph.id && prior.view === view && prior.centerNodeId === decorations?.centerNodeId) {
+      candidate = { ...prior.scene, positions: new Map([...prior.scene.positions].filter(([id]) => nodeIds.has(id))) };
+      const occupied = [...candidate.positions].map(([id, point]) => ({ id, point: manual[id] ?? point }));
+      const vacant = (id: string, next: Point) => !occupied.some(other => {
+        const size = nodeSize(id, decorations); const otherSize = nodeSize(other.id, decorations);
+        return Math.abs(other.point.x - next.x) < (size.width + otherSize.width) / 2 + 28 && Math.abs(other.point.y - next.y) < (size.height + otherSize.height) / 2 + 28;
+      });
+      const neighbors = new Map<string, string[]>();
+      for (const edge of graph.edges) {
+        const from = neighbors.get(edge.source) ?? []; from.push(edge.target); neighbors.set(edge.source, from);
+        const to = neighbors.get(edge.target) ?? []; to.push(edge.source); neighbors.set(edge.target, to);
+      }
+      let freeSlot = 0;
+      for (const node of graph.nodes) {
+        if (candidate.positions.has(node.id)) continue;
+        const anchorId = (neighbors.get(node.id) ?? []).find(id => manual[id] !== undefined || candidate.positions.has(id));
+        const anchor = anchorId ? manual[anchorId] ?? candidate.positions.get(anchorId) : undefined;
+        let point: Point | undefined;
+        // New diagnostics belong near their actual connected condition or
+        // evidence. The goal is not a fallback anchor for every warning.
+        if (!point && anchor) {
+          const currentSize = nodeSize(node.id, decorations); const anchorSize = nodeSize(anchorId!, decorations);
+          const across = (currentSize.width + anchorSize.width) / 2 + 48;
+          const down = (currentSize.height + anchorSize.height) / 2 + 50;
+          for (const [dx, dy] of [[across, 0], [0, down], [-across, 0], [0, -down], [across, down], [-across, down]]) {
+            const next = { x: anchor.x + dx, y: anchor.y + dy };
+            if (next.x >= 115 && next.y >= 70 && vacant(node.id, next)) { point = next; break; }
+          }
+        }
+        while (!point) {
+          const next = { x: 140 + (freeSlot % 5) * 230, y: 100 + Math.floor(freeSlot / 5) * 125 }; freeSlot++;
+          if (vacant(node.id, next)) point = next;
+        }
+        candidate.positions.set(node.id, point); occupied.push({ id: node.id, point });
+        candidate.width = Math.max(candidate.width, point.x + 140); candidate.height = Math.max(candidate.height, point.y + 90);
+      }
+    } else candidate = view === 'lanes' ? lanesLayout(graph) : decorations?.centerNodeId ? centeredBoardLayout(graph, decorations) : boardLayout(graph);
+    priorScene.current = { id: graph.id, view, centerNodeId: decorations?.centerNodeId, scene: candidate }; return candidate;
+  }, [topologyKey, view]);
+  const positionKey = `cluevia.positions.${graph.id}.${view}`;
   const dragging = useRef<{ id: string; pointer: number; x: number; y: number; point: Point; moved: boolean; scrollX: number; scrollY: number } | null>(null);
-  const suppressClick = useRef(false);
+  const suppressClickUntil = useRef(0);
   useEffect(() => {
+    touchedPositions.current.clear();
     try {
       const saved: unknown = JSON.parse(localStorage.getItem(positionKey) ?? '{}');
       const entries = saved && typeof saved === 'object' && !Array.isArray(saved) ? Object.entries(saved).filter((entry): entry is [string, Point] => {
@@ -245,35 +354,81 @@ function GraphCanvas({ graph, view, selection, onSelect, showPath, query }: Grap
       setManual(Object.fromEntries(entries));
     } catch { setManual({}); }
   }, [positionKey]);
+  useEffect(() => {
+    if (persistedPositions === undefined) return;
+    const entries = Object.entries(persistedPositions).filter(([, point]) => point && Number.isFinite(point.x) && Number.isFinite(point.y) && point.x >= 0 && point.y >= 0 && point.x <= 1e6 && point.y <= 1e6).sort(([a], [b]) => a.localeCompare(b));
+    const signature = JSON.stringify(entries);
+    if (appliedPositions.current.key === positionKey && appliedPositions.current.signature === signature) return;
+    appliedPositions.current = { key: positionKey, signature };
+    const next = Object.fromEntries(entries);
+    // A late initial GET must not undo a drag completed while it was loading.
+    for (const id of touchedPositions.current) if (manualRef.current[id]) next[id] = manualRef.current[id];
+    if (dragging.current && manualRef.current[dragging.current.id]) next[dragging.current.id] = manualRef.current[dragging.current.id];
+    manualRef.current = next; setManual(next);
+  }, [persistedPositions, positionKey]);
   const scene = useMemo(() => {
     const positions = new Map(baseScene.positions); let width = baseScene.width; let height = baseScene.height;
     for (const [id, point] of Object.entries(manual)) if (positions.has(id)) { positions.set(id, point); width = Math.max(width, point.x + 130); height = Math.max(height, point.y + 90); }
     return { width, height, positions };
   }, [baseScene, manual]);
   function startDrag(event: PointerEvent<HTMLButtonElement>, id: string) {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || dragging.current) return;
     const point = scene.positions.get(id); if (!point) return;
-    suppressClick.current = false;
+    initialCamera.current.interacted = true;
+    suppressClickUntil.current = 0;
     dragging.current = { id, pointer: event.pointerId, x: event.clientX, y: event.clientY, point, moved: false, scrollX: viewportRef.current?.scrollLeft ?? 0, scrollY: viewportRef.current?.scrollTop ?? 0 };
+    setDraggingId(id);
     event.currentTarget.setPointerCapture(event.pointerId);
     event.currentTarget.focus({ preventScroll: true });
-    onSelect({ kind: 'node', id });
   }
   function moveDrag(event: PointerEvent<HTMLButtonElement>) {
     const drag = dragging.current; if (!drag || drag.pointer !== event.pointerId) return;
     const dx = event.clientX - drag.x; const dy = event.clientY - drag.y;
     if (!drag.moved && Math.hypot(dx, dy) < 3) return;
-    drag.moved = true; suppressClick.current = true;
+    event.preventDefault();
+    drag.moved = true; suppressClickUntil.current = performance.now() + 400;
     const point = { x: clamp(drag.point.x + (dx + (viewportRef.current?.scrollLeft ?? 0) - drag.scrollX) / zoom, 100, 1e6), y: clamp(drag.point.y + (dy + (viewportRef.current?.scrollTop ?? 0) - drag.scrollY) / zoom, 60, 1e6) };
-    setManual(previous => ({ ...previous, [drag.id]: point }));
+    manualRef.current = { ...manualRef.current, [drag.id]: point };
+    setManual(manualRef.current);
   }
-  function endDrag(event: PointerEvent<HTMLButtonElement>) {
-    if (dragging.current?.pointer !== event.pointerId) return;
-    dragging.current = null;
+  function endDrag(event: PointerEvent<HTMLButtonElement>, cancelled = false) {
+    const drag = dragging.current;
+    if (drag?.pointer !== event.pointerId) return;
+    dragging.current = null; setDraggingId(null);
+    if (drag.moved || cancelled) suppressClickUntil.current = performance.now() + 400;
+    if (cancelled && drag.moved) {
+      manualRef.current = { ...manualRef.current, [drag.id]: drag.point };
+      setManual(manualRef.current);
+    }
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    setManual(previous => { try { localStorage.setItem(positionKey, JSON.stringify(previous)); } catch { /* Layout remains usable without browser persistence. */ } return previous; });
+    if (drag.moved && !cancelled) {
+      touchedPositions.current.add(drag.id);
+      try { localStorage.setItem(positionKey, JSON.stringify(manualRef.current)); } catch { /* Layout remains usable without browser persistence. */ }
+      onPositionsChange?.({ ...manualRef.current });
+    }
   }
-  const timeline = useMemo(() => timelineLayout(graph), [graph]);
+  function startPan(event: PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0 || pan.current || dragging.current || (event.target as Element).closest('button, a, input, textarea, select, [role="button"]')) return;
+    initialCamera.current.interacted = true;
+    suppressClickUntil.current = 0;
+    pan.current = { pointer: event.pointerId, x: event.clientX, y: event.clientY, left: event.currentTarget.scrollLeft, top: event.currentTarget.scrollTop, moved: false };
+    setPanning(true); event.currentTarget.setPointerCapture(event.pointerId); event.currentTarget.focus({ preventScroll: true });
+  }
+  function movePan(event: PointerEvent<HTMLDivElement>) {
+    const gesture = pan.current; if (!gesture || gesture.pointer !== event.pointerId) return;
+    const dx = event.clientX - gesture.x; const dy = event.clientY - gesture.y;
+    if (!gesture.moved && Math.hypot(dx, dy) < 3) return;
+    event.preventDefault(); gesture.moved = true; suppressClickUntil.current = performance.now() + 400;
+    event.currentTarget.scrollTo({ left: gesture.left - dx, top: gesture.top - dy });
+  }
+  function endPan(event: PointerEvent<HTMLDivElement>, cancelled = false) {
+    const gesture = pan.current; if (!gesture || gesture.pointer !== event.pointerId) return;
+    pan.current = null; setPanning(false);
+    if (gesture.moved || cancelled) suppressClickUntil.current = performance.now() + 400;
+    if (cancelled && gesture.moved) event.currentTarget.scrollTo({ left: gesture.left, top: gesture.top });
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+  const timeline = useMemo(() => view === 'timeline' ? timelineLayout(graph) : { width: 1100, height: 580, rows: [], events: [], ticks: [], min: 0, max: 0 } as TimelineLayout, [graph, view]);
   const dimensions = view === 'timeline' ? timeline : scene;
   const groups = useMemo(() => new Map(graph.groups.map(group => [group.id, group])), [graph.groups]);
   const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -292,6 +447,7 @@ function GraphCanvas({ graph, view, selection, onSelect, showPath, query }: Grap
     if (selection?.kind === 'event') return new Set(graph.events.find(item => item.id === selection.id)?.nodeIds ?? []);
     return new Set<string>();
   }, [graph, selection]);
+  const cameraCenter = decorations?.centerNodeId ? scene.positions.get(decorations.centerNodeId) : undefined;
 
   useLayoutEffect(() => {
     const element = viewportRef.current;
@@ -307,10 +463,17 @@ function GraphCanvas({ graph, view, selection, onSelect, showPath, query }: Grap
 
   useLayoutEffect(() => {
     const element = viewportRef.current;
-    if (!element) return;
-    setZoom(clamp((element.clientWidth - 32) / dimensions.width, 0.65, 1));
-    element.scrollTo({ top: 0, left: 0 });
-  }, [graph.id, view]);
+    if (!element || !element.clientWidth || !element.clientHeight) return;
+    const key = `${graph.id}:${view}:${decorations?.centerNodeId ?? ''}`;
+    if (initialCamera.current.key !== key) initialCamera.current = { key, interacted: false };
+    if (initialCamera.current.interacted) return;
+    const next = clamp((element.clientWidth - 32) / dimensions.width, 0.65, 1);
+    setZoom(next);
+    const frame = requestAnimationFrame(() => element.scrollTo(cameraCenter
+      ? { left: Math.max(0, cameraCenter.x * next - element.clientWidth / 2), top: Math.max(0, cameraCenter.y * next - element.clientHeight / 2) }
+      : { top: 0, left: 0 }));
+    return () => cancelAnimationFrame(frame);
+  }, [graph.id, view, decorations?.centerNodeId, viewport.width, viewport.height, cameraCenter?.x, cameraCenter?.y, dimensions.width, dimensions.height]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -331,9 +494,10 @@ function GraphCanvas({ graph, view, selection, onSelect, showPath, query }: Grap
       });
     });
     return () => cancelAnimationFrame(frame);
-  }, [graph, view, selection, selectedNodeIds]);
+  }, [graph.id, view, selection?.kind, selection?.id]);
 
   function changeZoom(value: number) {
+    initialCamera.current.interacted = true;
     const element = viewportRef.current;
     const next = clamp(value, MIN_ZOOM, 1.8);
     if (element) {
@@ -345,24 +509,29 @@ function GraphCanvas({ graph, view, selection, onSelect, showPath, query }: Grap
   }
 
   function fit() {
-    setZoom(clamp(Math.min((viewport.width - 28) / dimensions.width, (viewport.height - 28) / dimensions.height), MIN_ZOOM, 1));
+    initialCamera.current.interacted = true;
+    const anchor = decorations?.centerNodeId && baseScene.positions.get(decorations.centerNodeId);
+    const width = anchor ? Math.max(anchor.x, dimensions.width - anchor.x) * 2 : dimensions.width;
+    const height = anchor ? Math.max(anchor.y, dimensions.height - anchor.y) * 2 : dimensions.height;
+    setZoom(clamp(Math.min((viewport.width - 28) / width, (viewport.height - 28) / height), MIN_ZOOM, 1));
     viewportRef.current?.scrollTo({ top: 0, left: 0 });
   }
 
-  const extentWidth = Math.max(viewport.width, dimensions.width * zoom);
-  const extentHeight = Math.max(viewport.height, dimensions.height * zoom);
-  const sceneStyle: CSSProperties = { width: dimensions.width, height: dimensions.height, transform: `scale(${zoom})`, left: Math.max(0, (extentWidth - dimensions.width * zoom) / 2), top: Math.max(0, (extentHeight - dimensions.height * zoom) / 2) };
-  const displayedGroups = graph.groups.filter(group => graph.nodes.some(node => node.group === group.id));
-  const hasInferred = graph.edges.some(edge => edge.status === 'inferred');
-  const hasHighlight = graph.edges.some(edge => edge.highlighted);
+  const baseCenter = decorations?.centerNodeId && baseScene.positions.get(decorations.centerNodeId);
+  // Adding a warning to the right must not move cards already placed by the user.
+  const sceneLeft = Math.max(0, viewport.width / 2 - (baseCenter ? baseCenter.x : dimensions.width / 2) * zoom);
+  const sceneTop = Math.max(0, viewport.height / 2 - (baseCenter ? baseCenter.y : dimensions.height / 2) * zoom);
+  const extentWidth = Math.max(viewport.width, dimensions.width * zoom + sceneLeft);
+  const extentHeight = Math.max(viewport.height, dimensions.height * zoom + sceneTop);
+  const sceneStyle: CSSProperties = { width: dimensions.width, height: dimensions.height, transform: `scale(${zoom})`, left: sceneLeft, top: sceneTop };
   const noTimeline = view === 'timeline' && !timeline.events.length;
 
   return (
-    <section className={`cg-root cg-root--${view}`} aria-label={`${graph.title}: ${view} view`}>
+    <section className={`cg-root cg-root--${view}${decorations?.centerNodeId ? ' cg-root--review' : ''}`} aria-label={`${graph.title}: ${view} view`}>
       <div className="cg-toolbar">
         <div className="cg-status" role="status" aria-live="polite">
           <span className="cg-status-dot" />
-          {view === 'timeline' ? `${graph.events.length} dated events` : `${graph.nodes.length} entities · ${graph.edges.length} relations`}
+          {view === 'timeline' ? `${graph.events.length} dated events` : decorations ? `${graph.nodes.filter(node => !decorations.nodes[node.id]).length} items · ${gapTypes.length} gap types` : `${graph.nodes.length} entities · ${graph.edges.length} relations`}
           {normalizedQuery && <span className="cg-match-count">{view === 'timeline' ? graph.events.filter(eventMatches).length : matchingNodes.size} matches</span>}
         </div>
         <div className="cg-zoom" role="group" aria-label="Graph zoom controls">
@@ -372,7 +541,7 @@ function GraphCanvas({ graph, view, selection, onSelect, showPath, query }: Grap
           <button type="button" className="cg-fit" onClick={fit} aria-label="Fit graph to view"><Icon name="fit" size={15} /><span>Fit</span></button>
         </div>
       </div>
-      <div className="cg-viewport" ref={viewportRef} onScroll={event => setScroll({ left: event.currentTarget.scrollLeft, top: event.currentTarget.scrollTop })} tabIndex={0} role="region" aria-label="Graph canvas. Scroll or use the arrow keys to pan." data-canvas-scroll>
+      <div className={`cg-viewport${panning ? ' is-panning' : ''}`} ref={viewportRef} onPointerDown={startPan} onPointerMove={movePan} onPointerUp={event => endPan(event)} onPointerCancel={event => endPan(event, true)} onLostPointerCapture={event => endPan(event, true)} onClick={event => { if (event.detail > 0 && performance.now() < suppressClickUntil.current) { event.preventDefault(); event.stopPropagation(); return; } if (event.target instanceof Element && !event.target.closest('button, [role="button"]')) onSelect(null); }} onScroll={event => setScroll({ left: event.currentTarget.scrollLeft, top: event.currentTarget.scrollTop })} tabIndex={0} role="region" aria-label="Graph canvas. Scroll or use the arrow keys to pan." data-canvas-scroll>
         {noTimeline ? <div className="cg-empty"><span>NO DATED EVENTS</span><h3>This graph has no timeline yet.</h3><p>Add events with dates to the graph document to view them here.</p></div> : <div className="cg-extent" style={{ width: extentWidth, height: extentHeight }}>
           <div className="cg-scene" style={sceneStyle}>
             {view === 'timeline' ? <>
@@ -402,19 +571,20 @@ function GraphCanvas({ graph, view, selection, onSelect, showPath, query }: Grap
               <svg className="cg-connections" width={scene.width} height={scene.height} viewBox={`0 0 ${scene.width} ${scene.height}`} fill="none" aria-label="Graph relations">
                 <defs><marker id={markerId} markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0 0 L6 3 L0 6" fill="none" stroke="context-stroke" strokeWidth="1" /></marker></defs>
                 {graph.edges.map((edge, index) => {
-                  const geometry = edgeGeometry(edge, scene, view === 'lanes', index);
+                  const geometry = edgeGeometry(edge, scene, view === 'lanes', index, decorations);
                   if (!geometry) return null;
                   const selected = selection?.kind === 'edge' && selection.id === edge.id;
                   const connected = selectedNodeIds.has(edge.source) || selectedNodeIds.has(edge.target);
                   const matches = !normalizedQuery || matchingNodes.has(edge.source) && matchingNodes.has(edge.target);
                   const highlighted = showPath && edge.highlighted;
-                  return <g key={edge.id} className={`cg-edge${edge.claim ? ` cg-edge--${edge.claim.stance}` : ''}${edge.status === 'inferred' || (edge.claim && edge.claim.stance !== 'asserted') ? ' cg-edge--inferred' : ''}${highlighted ? ' cg-edge--highlighted' : ''}${connected ? ' cg-edge--connected' : ''}${selected ? ' is-selected' : ''}${matches ? '' : ' is-muted'}`} tabIndex={matches ? 0 : -1} role="button" aria-pressed={selected} aria-label={`Relation: ${edge.label}, ${nodeById.get(edge.source)?.label} to ${nodeById.get(edge.target)?.label}`} onClick={() => onSelect({ kind: 'edge', id: edge.id })} onKeyDown={event => activateEdge(event, () => onSelect({ kind: 'edge', id: edge.id }))}>
-                    <title>{edge.label} · {edge.claim ? stanceLabels[edge.claim.stance] : edge.status}</title><path className="cg-edge-hit" d={geometry.path} /><path className="cg-edge-line" d={geometry.path} markerEnd={`url(#${markerId})`} />
-                    {(graph.edges.length <= 65 || selected || highlighted) && <foreignObject x={geometry.label.x - 77} y={geometry.label.y - 10} width="154" height="22"><div className="cg-edge-label" title={edge.label}>{edge.claim && edge.claim.stance !== "asserted" ? `${stanceLabels[edge.claim.stance]} · ` : ""}{edge.label}</div></foreignObject>}
+                  const gap = decorations?.edges[edge.id];
+                  return <g key={gap ? `${edge.id}:${decorations?.runKey ?? ''}` : edge.id} data-graph-edge={edge.id} data-gap-type={gap?.gapType} className={`cg-edge${gap ? ' cg-edge--gap' : ''}${edge.claim ? ` cg-edge--${edge.claim.stance}` : ''}${edge.status === 'inferred' || (edge.claim && edge.claim.stance !== 'asserted') ? ' cg-edge--inferred' : ''}${highlighted ? ' cg-edge--highlighted' : ''}${connected ? ' cg-edge--connected' : ''}${selected ? ' is-selected' : ''}${matches ? '' : ' is-muted'}`} style={gap ? { '--cg-gap-delay': `${Math.max(0, Math.min(gap.delayMs ?? (gap.revealIndex ?? 0) * 65, 30000))}ms`, '--cg-gap-duration': `${Math.max(1, Math.min(gap.durationMs ?? 750, 30000))}ms` } as CSSProperties : undefined} tabIndex={matches ? 0 : -1} role="button" aria-pressed={selected} aria-label={`${gap ? `근거 공백: ${gapLabels[gap.gapType]}` : `Relation: ${edge.label}`}, ${nodeById.get(edge.source)?.label} to ${nodeById.get(edge.target)?.label}`} onClick={() => onSelect({ kind: 'edge', id: edge.id })} onKeyDown={event => activateEdge(event, () => onSelect({ kind: 'edge', id: edge.id }))}>
+                    <title>{edge.label} · {gap ? gapLabels[gap.gapType] : edge.claim ? stanceLabels[edge.claim.stance] : edge.status}</title><path className="cg-edge-hit" d={geometry.path} /><path className="cg-edge-line" d={geometry.path} markerEnd={`url(#${markerId})`} />{gap && <path className="cg-gap-reveal" d={geometry.path} pathLength="1" />}
+                    {(graph.edges.length <= 65 || selected || highlighted || gap) && <foreignObject x={geometry.label.x - 77} y={geometry.label.y - 10} width="154" height="22"><div className="cg-edge-label" title={edge.label}>{gap ? gapLabels[gap.gapType] : <>{edge.claim && edge.claim.stance !== "asserted" ? `${stanceLabels[edge.claim.stance]} · ` : ""}{edge.label}</>}</div></foreignObject>}
                   </g>;
                 })}
               </svg>
-              {graph.nodes.map(node => {
+              {graph.nodes.map((node, index) => {
                 const point = scene.positions.get(node.id);
                 if (!point) return null;
                 const pinned = selectedNodeIds.has(node.id) || dragging.current?.id === node.id;
@@ -423,15 +593,16 @@ function GraphCanvas({ graph, view, selection, onSelect, showPath, query }: Grap
                 const related = !selected && selectedNodeIds.has(node.id);
                 const matches = !normalizedQuery || matchingNodes.has(node.id);
                 const group = groups.get(node.group);
-                return <button type="button" data-graph-node={node.id} className={`cg-node${selected ? ' is-selected' : ''}${related ? ' is-related' : ''}${matches ? '' : ' is-muted'}`} key={node.id} style={{ left: point.x, top: point.y, '--cg-color': group?.color ?? '#7a6f5c', touchAction: 'none', cursor: 'grab' } as CSSProperties} onPointerDown={event => startDrag(event, node.id)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag} onClick={() => { if (!suppressClick.current) onSelect({ kind: 'node', id: node.id }); suppressClick.current = false; }} aria-pressed={selected} aria-label={`${node.type}: ${node.label}`} title={node.description || node.label} tabIndex={matches ? 0 : -1}>
-                  <span className="cg-node-type"><i />{node.type}</span><strong>{node.label}</strong><span className="cg-node-meta">{node.sourceIds.length} {node.sourceIds.length === 1 ? 'source' : 'sources'}<span>{group?.label}</span></span>
+                const decoration = decorations?.nodes[node.id];
+                return <button type="button" data-graph-node={node.id} data-graph-decoration={decoration?.kind} data-gap-type={decoration?.gapType} data-review-state={decoration?.state} data-evaluation-state={decoration?.kind === 'gap' ? node.properties.evaluationState : undefined} className={`cg-node${decoration ? ` cg-node--${decoration.kind}` : ''}${selected ? ' is-selected' : ''}${related ? ' is-related' : ''}${matches ? '' : ' is-muted'}${draggingId === node.id ? ' is-dragging' : ''}`} key={node.id} style={{ left: point.x, top: point.y, '--cg-color': group?.color ?? '#7a6f5c', '--cg-enter-delay': `${Math.max(0, Math.min(decoration?.delayMs ?? index * 18, decoration?.delayMs === undefined ? 180 : 30000))}ms`, '--cg-enter-duration': `${Math.max(1, Math.min(decoration?.durationMs ?? 380, 30000))}ms` } as CSSProperties} onPointerDown={event => startDrag(event, node.id)} onPointerMove={moveDrag} onPointerUp={event => endDrag(event)} onPointerCancel={event => endDrag(event, true)} onLostPointerCapture={event => endDrag(event, true)} onClick={event => { if (event.detail > 0 && performance.now() < suppressClickUntil.current) { event.preventDefault(); event.stopPropagation(); return; } onSelect({ kind: 'node', id: node.id }); }} aria-pressed={selected} aria-label={`${decoration?.kind === 'gap' ? `근거 공백: ${decoration.gapType ? gapLabels[decoration.gapType] : node.type}` : decoration?.kind === 'goal' ? '분석 목표' : node.type}: ${node.label}`} title={node.description || node.label} tabIndex={matches ? 0 : -1}>
+                  <span className="cg-node-type">{decoration?.kind === 'gap' ? <svg className="cg-gap-alert" data-gap-warning width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><path d="m10 2 8 15H2z" strokeLinejoin="round" /><path d="M10 7v4m0 2v1" strokeLinecap="round" /></svg> : <i />}{decoration?.kind === 'goal' ? 'GOAL' : decoration?.kind === 'gap' ? 'GAP' : node.type}{decoration?.kind === 'goal' && decoration.state === 'checking' && <small>Checking…</small>}{decoration?.kind === 'gap' && node.properties.evaluationState === 'PENDING' && <small className="cg-node-check-status">확인 대기</small>}</span><strong>{node.label}</strong><span className="cg-node-meta">{decoration?.kind === 'goal' ? 'Analysis goal' : decoration?.kind === 'gap' ? decoration.gapType ? gapLabels[decoration.gapType] : '근거 확인 필요' : <>{node.sourceIds.length} {node.sourceIds.length === 1 ? 'source' : 'sources'}</>}<span>{decoration?.kind === 'gap' ? 'View reason ↗' : decoration?.kind === 'goal' ? 'Evidence review' : group?.label}</span></span>
                 </button>;
               })}
             </>}
           </div>
         </div>}
       </div>
-      <div className="cg-footer"><div className="cg-legend" aria-label="Graph legend">{displayedGroups.map(group => <span key={group.id}><i style={{ background: group.color }} />{group.label}</span>)}{view !== 'timeline' && <span><i className="cg-line-swatch" />Reported</span>}{view !== 'timeline' && hasInferred && <span><i className="cg-line-swatch cg-line-swatch--inferred" />Inferred</span>}{view !== 'timeline' && hasHighlight && <span><i className="cg-line-swatch cg-line-swatch--highlight" />Evidence path</span>}</div><span className="cg-pan-hint">Scroll to pan · Select to inspect</span></div>
+      {!!gapTypes.length && <details className="cg-gap-legend"><summary>Gaps · {gapTypes.length}</summary><ul aria-label="근거 공백 선의 의미">{gapTypes.map(type => <li key={type} data-gap-type={type}><svg width="27" height="7" viewBox="0 0 27 7" aria-hidden="true"><path d="M0 3.5H27" /></svg><span>{gapLabels[type]}</span></li>)}</ul></details>}
     </section>
   );
 }
@@ -441,13 +612,25 @@ export default function GraphRenderer(props: GraphRendererProps) {
   const [group, setGroup] = useState(''); const [page, setPage] = useState(0); const [depth, setDepth] = useState(1);
   const large = props.graph.nodes.length > 200 || props.graph.edges.length > 1000 || props.graph.events.length > 500;
   useEffect(() => { setPage(0); setGroup(''); }, [props.graph.id, props.selection?.id, props.query]);
-  const projection = useMemo(() => exploreGraph(props.graph, { selection: props.selection, group, query: props.query, page, depth }), [props.graph, props.selection, group, props.query, page, depth]);
-  if (!large) return <GraphCanvas {...props} />;
-  return <div className="cg-explorer"><div className="cg-explorer-controls" aria-label="대규모 그래프 탐색">
-    <span>전체 {props.graph.nodes.length.toLocaleString()}개 · 현재 {projection.graph.nodes.length}개 표시</span>
+  const projection = useMemo(() => large ? exploreGraph(props.graph, { selection: props.selection, group, query: props.query, page, depth }) : null, [large, props.graph, props.selection, group, props.query, page, depth]);
+  const displayedGraph = useMemo(() => {
+    if (!projection || !props.decorations) return projection?.graph ?? props.graph;
+    const ids = new Set(projection.graph.nodes.map(node => node.id));
+    // Diagnostic annotations must survive ordinary-object pagination. Preserve
+    // their endpoints too, so a retained warning never becomes a dangling edge.
+    Object.keys(props.decorations.nodes).forEach(id => ids.add(id));
+    if (props.decorations.centerNodeId) ids.add(props.decorations.centerNodeId);
+    const diagnosticEdges = props.graph.edges.filter(edge => props.decorations!.edges[edge.id]);
+    diagnosticEdges.forEach(edge => { ids.add(edge.source); ids.add(edge.target); });
+    const nodes = props.graph.nodes.filter(node => ids.has(node.id));
+    const ordinaryEdges = props.graph.edges.filter(edge => !props.decorations!.edges[edge.id] && ids.has(edge.source) && ids.has(edge.target)).slice(0, 1000);
+    return { ...projection.graph, nodes, edges: [...ordinaryEdges, ...diagnosticEdges], groups: props.graph.groups.filter(group => nodes.some(node => node.group === group.id)) };
+  }, [projection, props.graph, props.decorations]);
+  return <div className={`cg-explorer${projection ? '' : ' cg-explorer--compact'}`}>{projection && <div className="cg-explorer-controls" aria-label="대규모 그래프 탐색">
+    <span>전체 {props.graph.nodes.length.toLocaleString()}개 · 현재 {displayedGraph.nodes.length}개 표시</span>
     <label>객체 유형 <select value={group} onChange={event => { setGroup(event.target.value); setPage(0); }}><option value="">모든 유형</option>{props.graph.groups.map(group => <option key={group.id} value={group.id}>{group.label}</option>)}</select></label>
     <label>연결 범위 <select value={depth} onChange={event => { setDepth(Number(event.target.value)); setPage(0); }}><option value={0}>전체 목록</option><option value={1}>선택한 객체의 직접 연결</option><option value={2}>두 단계 연결</option></select></label>
     <button type="button" disabled={projection.page === 0} onClick={() => setPage(projection.page - 1)}>이전</button><span>{projection.page + 1} / {projection.pages}</span><button type="button" disabled={projection.page + 1 >= projection.pages} onClick={() => setPage(projection.page + 1)}>다음</button>
     {!!projection.hiddenEdges && <small>현재 객체 사이의 관계 {projection.hiddenEdges}개 추가 보관 · 객체를 선택해 좁혀주세요.</small>}
-  </div><GraphCanvas {...props} graph={projection.graph} /></div>;
+  </div>}<GraphCanvas {...props} graph={displayedGraph} /></div>;
 }

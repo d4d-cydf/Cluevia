@@ -122,7 +122,7 @@
   .ws-compose textarea { min-height: 64px; }
   .ws-stage { flex: none; width: 100%; height: auto; min-height: 0; }
   .ws-stage > .graph-scroll { height: 780px; }
-  .ws-object-inspector, .ws-event-inspector { position: relative; left: auto; right: auto; bottom: auto; width: auto; max-width: none; margin: 0 16px 16px; }
+  .ws-event-inspector { position: relative; left: auto; right: auto; bottom: auto; width: auto; max-width: none; margin: 0 16px 16px; }
   .ws-event-inspector { gap: 12px 28px; }
 }
 @media (max-width: 600px) {
@@ -139,7 +139,6 @@
   .ws-toolbar nav a { flex: 1; justify-content: center; padding-inline: 8px; }
   .ws-graph-tools { padding-left: 4px; }
   .ws-graph-tools button { font-size: 11px; }
-  .ws-object-inspector { margin: 0 12px 16px; }
   .ws-event-inspector { margin: 0 12px 16px; gap: 8px; padding: 12px; }
   .ws-event-inspector h2 { font-size: 18px; }
   .ws-event-inspector p { font-size: 12.5px; }
@@ -147,3 +146,14 @@
   .ws-event-facts { font-size: 10px; }
   .ws-menu > div { width: min(260px, calc(100vw - 32px)); }
 }
+
+.ws-stage--overview { display: flex; flex-direction: column; height: calc(100dvh - var(--case-shell-header-height, 63px)); min-height: 450px; }
+.ws-stage--overview .ws-toolbar { position: relative; inset: auto; flex: none; padding: 12px 16px; }
+.ws-stage--overview .ws-graph-tools { display: none; }
+.ws-inspector-close { float: right; display: grid; place-items: center; margin: -4px 0 4px 12px; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); }
+.ws-inspector-close:hover { background: #efe6d8; }
+
+.ws-stage > .ws-object-inspector { position: absolute; z-index: 20; top: 72px; right: 16px; bottom: 16px; left: auto; width: min(390px, calc(100% - 32px)); max-height: none; margin: 0; border-radius: 14px; overflow-y: auto; animation: ws-detail-appear .22s ease both; }
+@keyframes ws-detail-appear { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 600px) { .ws-stage:not(.ws-stage--overview) > .ws-object-inspector { top: 122px; } }
+@media (prefers-reduced-motion: reduce) { .ws-stage > .ws-object-inspector { animation: none; } }

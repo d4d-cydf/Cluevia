@@ -12,6 +12,7 @@ import type { AnalysisCase, AnalysisRecordDetail } from '../src/types/analysis-c
 import type { CaseChatState } from '../src/types/case-chat.ts';
 import type { OntologyEntityDetail, OntologyEntitySummary, OntologyExtraction, OntologySummary } from '../src/types/ontology.ts';
 import type { CodexInput } from './codex.ts';
+import type { OverviewConfidenceSummary } from '../src/types/why-not.ts';
 import type { CodexRunner, GenerationJob } from './jobs.ts';
 import { createProductBackend } from './product-api.ts';
 
@@ -85,6 +86,35 @@ async function create(session: Pick<Session, 'call'>, body: unknown = request) {
   return terminal(session, data.job.id);
 }
 
+test('overview confidence reads preserve the graph and require auth without starting model work or review history', async t => {
+  let calls = 0;
+  const session = await setup(t, async input => { calls++; return extraction(input); }, { token: 'confidence-test-key' });
+  const job = await create(session);
+  // Lifecycle preparation now starts before extraction. Let that independent
+  // work finish before measuring the effects of read-only requests.
+  for (let i = 0; i < 100; i++) {
+    const row = session.backend.store.db.prepare('SELECT payload FROM why_not_runs WHERE job_id=? ORDER BY rowid DESC LIMIT 1').get(job.id);
+    if (row && JSON.parse(String(row.payload)).status !== 'running') break;
+    await delay(5);
+  }
+  const beforeHistory = (await session.call(`/api/jobs/${job.id}/why-not`)).data;
+  const beforeCalls = calls;
+  const path = `/api/jobs/${job.id}/confidence`;
+  assert.equal((await session.call(path, undefined, '')).status, 401);
+  assert.equal((await session.call('/api/jobs/missing-job/confidence')).status, 404);
+  const first = await session.call<OverviewConfidenceSummary>(path);
+  assert.equal(first.status, 200);
+  assert.equal(first.data.state, 'unassessed');
+  assert.equal(first.data.confidence, null);
+  assert.equal(first.data.accepted, false);
+  assert.equal(first.data.goal, request.question);
+  assert.ok(first.data.unknownReasons.length > 0);
+  assert.deepEqual((await session.call(path)).data, first.data);
+  assert.equal(calls, beforeCalls);
+  assert.deepEqual((await session.call(`/api/jobs/${job.id}/why-not`)).data, beforeHistory);
+  assert.equal((await session.call<{ graph: GraphDocument }>(`/api/graphs/${job.graphId}`)).data.graph.edges.length, 1);
+});
+
 test('case and record HTTP endpoints enforce auth, preserve evidence and work after restart', async t => {
   const token = 'case-test-access-token';
   const session = await setup(t, async input => extraction(input), { token });
@@ -151,7 +181,7 @@ test('case chat cites only its supplied evidence, persists history, and deletion
   let state: CaseChatState | undefined;
   for (let i = 0; i < 100; i++) { state = (await session.call<CaseChatState>(path)).data; if (state.turns[0]?.status !== 'running') break; await delay(5); }
   assert.equal(state!.turns[0].status, 'completed'); assert.deepEqual(state!.turns[0].citations, [{ record: 1, quote }]);
-  assert.equal(state!.model, 'gpt-6.1-sol'); assert.equal(state!.effort, 'xhigh');
+  assert.equal(state!.model, 'gpt-6.1-sol'); assert.equal(state!.effort, 'high');
   assert.equal((await session.call(path, { question: 'invalid quote' })).status, 202);
   for (let i = 0; i < 100; i++) { state = (await session.call<CaseChatState>(path)).data; if (state.turns[1]?.status !== 'running') break; await delay(5); }
   assert.equal(state!.turns[1].status, 'failed'); assert.match(state!.turns[1].error!, /일치하지 않는 인용/);
@@ -223,6 +253,7 @@ test('running generation cancellation aborts the runner and saves no graph or pa
 test('one invalid quote receives bounded repair feedback and corrected output is stored once', async t => {
   const calls: CodexInput[] = [];
   const session = await setup(t, async input => {
+    if (input.purpose === 'why-not') return {};
     calls.push(input);
     const result = extraction(input);
     if (calls.length === 1) result.relationships[0].evidence[0] = { documentId: input.documents[0].id, quote: 'This sentence does not occur in the document.' };
@@ -235,16 +266,63 @@ test('one invalid quote receives bounded repair feedback and corrected output is
   assert.equal(counts.graphs, 1); assert.equal(counts.relationships, 1);
 });
 
-test('invalid quotations on both attempts fail without persisting claims', async t => {
+test('after bounded quote repair fails, independent valid objects survive without invalid dependent claims', async t => {
   let calls = 0;
   const session = await setup(t, async input => {
+    if (input.purpose === 'why-not') return {};
     calls++;
     const result = extraction(input); result.entities[0].evidence = [{ documentId: input.documents[0].id, quote: 'Unsupported fabricated quotation.' }];
     return result;
   });
   const job = await create(session);
+  assert.equal(job.status, 'completed', job.error); assert.equal(calls, 2);
+  const { graph } = (await session.call<{ graph: GraphDocument }>(`/api/graphs/${job.graphId}`)).data;
+  assert.deepEqual(graph.nodes.map(node => node.label), ['Busan']);
+  assert.deepEqual(graph.edges, []); assert.deepEqual(graph.events, []); assert.deepEqual(graph.findings, []);
+  assert.ok(graph.limitations.some(note => /객체 1개·관계 1개·사건 1개·발견 사항 1개/.test(note)));
+  const counts = (await session.call<{ summary: OntologySummary }>('/api/ontology')).data.summary;
+  assert.equal(counts.graphs, 1); assert.equal(counts.entities, 1); assert.equal(counts.relationships, 0);
+  assert.equal((await session.call<{ entities: OntologyEntitySummary[] }>('/api/ontology/entities?type=vessel')).data.entities.length, 0);
+  const record = (await session.call<AnalysisRecordDetail>(`/api/jobs/${job.id}/records/1`)).data;
+  assert.equal(record.documents[0].text, quote);
+  assert.ok(record.claims.every(claim => claim.evidence.every(item => item.quote === quote)));
+});
+
+test('wholly unsupported quotations on both attempts fail without persisting any object or graph', async t => {
+  let calls = 0;
+  const session = await setup(t, async input => {
+    if (input.purpose === 'why-not') return {};
+    calls++;
+    const result = extraction(input);
+    for (const entity of result.entities) entity.evidence = [{ documentId: input.documents[0].id, quote: 'Unsupported fabricated quotation.' }];
+    return result;
+  });
+  const job = await create(session);
   assert.equal(job.status, 'failed'); assert.match(job.error ?? '', /인용문/); assert.equal(calls, 2);
-  assert.equal((await session.call<{ summary: OntologySummary }>('/api/ontology')).data.summary.graphs, 0);
+  const counts = (await session.call<{ summary: OntologySummary }>('/api/ontology')).data.summary;
+  assert.equal(counts.graphs, 0); assert.equal(counts.entities, 0); assert.equal(counts.relationships, 0);
+});
+
+test('legacy generation retains a grounded relationship while clearing unquoted attribution without a second call', async t => {
+  let calls = 0;
+  const session = await setup(t, async input => {
+    if (input.purpose === 'why-not') return {};
+    calls++;
+    const result = extraction(input);
+    result.relationships[0].claim = { stance: 'uncertain', attributedTo: 'Unquoted Publisher', derivedFrom: null, validFrom: null, validTo: null, publishedAt: null };
+    result.relationships[0].status = 'inferred';
+    return result;
+  });
+  const job = await create(session);
+  assert.equal(job.status, 'completed', job.error); assert.equal(calls, 1);
+  const { graph } = (await session.call<{ graph: GraphDocument }>(`/api/graphs/${job.graphId}`)).data;
+  assert.equal(graph.nodes.length, 2); assert.equal(graph.edges.length, 1);
+  assert.equal(graph.edges[0].claim!.attributedTo, null);
+  assert.equal(graph.edges[0].claim!.stance, 'uncertain'); assert.equal(graph.edges[0].status, 'inferred');
+  assert.ok(graph.limitations.some(note => /선택적 주장 주체/.test(note)));
+  const entities = (await session.call<{ entities: OntologyEntitySummary[] }>('/api/ontology/entities?type=vessel')).data.entities;
+  const detail = (await session.call<{ entity: OntologyEntityDetail }>(`/api/ontology/entities/${entities[0].id}`)).data.entity;
+  assert.equal(detail.relationships[0].evidence[0].quote, quote);
 });
 
 test('missing or incorrect workspace keys return 401 without provider probing or invocation', async t => {
@@ -303,7 +381,7 @@ test('a cross-origin request is rejected even when a valid workspace key is supp
 
 test('a source-free question reuses persisted original evidence after restart and unsupported questions fail', async t => {
   const inputs: CodexInput[] = [];
-  const session = await setup(t, async input => { inputs.push(input); return extraction(input); });
+  const session = await setup(t, async input => { if (input.purpose !== 'why-not') inputs.push(input); return extraction(input); });
   assert.equal((await create(session)).status, 'completed');
   await session.close();
   const reopened = await session.reopen();
@@ -329,7 +407,7 @@ test('insufficient evidence result fails immediately without asking the model to
 
 test('a file larger than 2MB is streamed, every chunk analyzed, and all result graphs remain navigable after restart', async t => {
   const parts: string[] = [];
-  const session = await setup(t, async input => { parts.push(input.documents[0].id); return extraction(input); });
+  const session = await setup(t, async input => { if (input.purpose === 'why-not') return {}; parts.push(input.documents[0].id); return extraction(input); });
   const raw = `${quote}\n`.repeat(42_000);
   assert.ok(Buffer.byteLength(raw) > 2_000_000);
   const upload = await fetch(`${session.base}/api/documents/upload`, {
@@ -396,4 +474,100 @@ test('HTTP resume after restart keeps earlier graph parts and analyzes only unfi
   assert.equal(finished.graphIds?.[0], failed.graphIds?.[0]); assert.equal(finished.graphIds?.length, document.chunkCount);
   assert.equal(called.filter(id => id.endsWith('-part-1')).length, 1); assert.equal(called.filter(id => id.endsWith('-part-2')).length, 2);
   assert.equal((await reopened.call(`/api/jobs/${failed.id}/resume`, {})).status, 400);
+});
+
+test('completed analysis prepares Why diagnostics on the server without an open case and reload reuses them', async t => {
+  let preparationCalls = 0;
+  const session = await setup(t, async input => {
+    if (input.purpose !== 'why-not') return extraction(input);
+    preparationCalls++;
+    const context = JSON.parse(input.context ?? '{}');
+    if (context.mode === 'review') return { decisions: context.bindingIds.map((bindingId: string) => ({ bindingId, verdict: 'SUPPORTED', reason: '원문 방문 기록', missingRequirements: [], metadata: { fields: [], start: null, end: null, timeQuote: null } })), duplicates: [] };
+    if (context.mode === 'estimate-confidence') {
+      const anchors = [{ evidenceId: input.documents[0].id, quote }];
+      return { prior: { probability: .5, reason: '기준 통계가 없는 목표의 중립 사전 추정', anchors },
+        bindings: context.bindings.map((binding: { id: string }) => ({ bindingId: binding.id, ratio: 4, reason: '명시된 방문 관측의 목표 우도비 모형 추정', anchors })),
+        sources: input.documents.map(source => ({ evidenceId: source.id, grade: 'D', reason: '원출처를 별도로 검증하지 못한 보도 자료', anchors })) };
+    }
+    return { rootId: 'root', nodes: [
+      { id: 'root', kind: 'claim', statement: input.question, operator: 'AND', children: ['requirement'], inferenceRule: '원문 관계 확인', negativeOf: null, eventRuleId: null, need: null },
+      { id: 'requirement', kind: 'requirement', statement: '부산 방문 기록', operator: 'OR', children: [], inferenceRule: '직접 기록', negativeOf: null, eventRuleId: null, need: { kinds: ['방문 기록'], fields: [], criteria: ['부산 방문 명시'], eventScope: 'Ocean Star' } },
+    ], eventRules: [], bindings: [{ evidenceId: input.documents[0].id, requirementId: 'requirement', quote }] };
+  });
+  const completed = await create(session); assert.equal(completed.status, 'completed');
+  let saved: import('../src/types/why-not.ts').WhyRun | undefined;
+  // No Why POST is issued. The durable completion hook schedules preparation.
+  for (let i = 0; i < 100; i++) {
+    const row = session.backend.store.db.prepare('SELECT payload FROM why_not_runs WHERE job_id=?').get(completed.id);
+    saved = row ? JSON.parse(String(row.payload)) : undefined;
+    if (saved?.preparation?.ready) break;
+    await delay(5);
+  }
+  assert.equal(preparationCalls, 3); assert.equal(saved?.preparation?.ready, true);
+  assert.ok(saved!.baseSnapshot); assert.ok(saved!.graphReadyAt); assert.equal(saved!.phase, 'ready');
+  assert.equal(saved!.baseSnapshot!.bindings[0].verdict, 'UNREVIEWED');
+  assert.equal(saved!.snapshot!.bindings[0].verdict, 'SUPPORTED');
+  assert.equal(saved!.estimation?.status, 'completed', saved!.estimation?.error);
+  assert.ok(Math.abs(saved!.preparation!.score! - 68.75) < 1e-10); assert.ok(saved!.snapshot); assert.ok(saved!.result);
+  assert.equal(saved!.snapshot!.bindings[0].likelihood?.basis, 'MODEL_ESTIMATE');
+  await session.close(); const reopened = await session.reopen(); await delay(50);
+  const response = await reopened.call<import('../src/types/why-not.ts').WhyRunList>(`/api/jobs/${completed.id}/why-not`);
+  assert.equal(response.data.runs[0].id, saved!.id); assert.equal(response.data.runs[0].preparation?.ready, true);
+  assert.equal(preparationCalls, 3);
+});
+
+test('Why baseline is durable before the first extraction finishes and diagnostics reuse it after completion', async t => {
+  const modes: string[] = [];
+  let releaseExtraction = () => {};
+  const extractionGate = new Promise<void>(resolve => { releaseExtraction = resolve; });
+  const session = await setup(t, async (input, _config, options) => {
+    if (input.purpose !== 'why-not') {
+      options?.signal?.addEventListener('abort', releaseExtraction, { once: true });
+      await extractionGate;
+      return extraction(input);
+    }
+    const context = JSON.parse(input.context ?? '{}'); modes.push(context.mode);
+    if (context.mode === 'review') return { decisions: context.bindingIds.map((bindingId: string) => ({ bindingId, verdict: 'SUPPORTED', reason: '원문 방문 기록', missingRequirements: [], metadata: { fields: [], start: null, end: null, timeQuote: null } })), duplicates: [] };
+    if (context.mode === 'estimate-confidence') {
+      const anchors = [{ evidenceId: input.documents[0].id, quote }];
+      return { prior: { probability: null, reason: '독립적인 기저율 없음', anchors: [] },
+        bindings: context.bindings.map((binding: { id: string }) => ({ bindingId: binding.id, ratio: 4, reason: '직접 관측의 모델 추정', anchors })),
+        sources: context.sources.map((source: { id: string }) => ({ evidenceId: source.id, grade: 'D', reason: '원출처 미검증 보도 자료', anchors })) };
+    }
+    return { rootId: 'root', nodes: [
+      { id: 'root', kind: 'claim', statement: input.question, operator: 'AND', children: ['requirement'], inferenceRule: '원문 관계 확인', negativeOf: null, eventRuleId: null, need: null },
+      { id: 'requirement', kind: 'requirement', statement: '부산 방문 기록', operator: 'OR', children: [], inferenceRule: '직접 기록', negativeOf: null, eventRuleId: null, need: { kinds: ['방문 기록'], fields: [], criteria: ['부산 방문 명시'], eventScope: 'Ocean Star' } },
+    ], eventRules: [], bindings: [{ evidenceId: input.documents[0].id, requirementId: 'requirement', quote }] };
+  });
+  try {
+    const created = await session.call<{ job: GenerationJob }>('/api/jobs', request);
+    assert.equal(created.status, 202);
+    const jobId = created.data.job.id;
+    type WhyRun = import('../src/types/why-not.ts').WhyRun;
+    const readRun = () => {
+      const row = session.backend.store.db.prepare('SELECT payload FROM why_not_runs WHERE job_id=? ORDER BY rowid DESC LIMIT 1').get(jobId);
+      return row ? JSON.parse(String(row.payload)) as WhyRun : undefined;
+    };
+    for (let i = 0; i < 100 && readRun()?.phase !== 'graph-ready'; i++) await delay(10);
+    const early = readRun();
+    assert.equal(early?.phase, 'graph-ready'); assert.ok(early?.baseSnapshot);
+    assert.equal(early.baseSnapshot.bindings[0].verdict, 'UNREVIEWED');
+    assert.notEqual(early.preparation?.ready, true);
+    const main = session.backend.jobs.get(jobId)!;
+    assert.equal(main.status, 'running'); assert.equal(main.completedChunks, 0); assert.equal(main.graphIds.length, 0);
+    assert.deepEqual(modes, ['baseline']);
+    const visible = await session.call<AnalysisCase>(`/api/jobs/${jobId}/case`);
+    assert.equal(visible.status, 200); assert.equal(visible.data.graph.nodes.length, 0);
+    for (let i = 0; i < 3; i++) await session.call(`/api/jobs/${jobId}/why-not`);
+    assert.deepEqual(modes, ['baseline'], 'Reading the early graph must not start review or another generation.');
+    releaseExtraction();
+    assert.equal((await terminal(session, jobId)).status, 'completed');
+    for (let i = 0; i < 100 && !readRun()?.preparation?.ready; i++) await delay(10);
+    const ready = readRun()!;
+    assert.equal(ready.id, early.id); assert.equal(ready.phase, 'ready'); assert.equal(ready.preparation?.ready, true);
+    assert.deepEqual(ready.baseSnapshot, early.baseSnapshot);
+    assert.deepEqual(modes, ['baseline', 'review', 'estimate-confidence']);
+    assert.equal(ready.estimation?.effort, 'low');
+    assert.equal(ready.snapshot?.bindings[0].likelihood?.basis, 'MODEL_ESTIMATE');
+  } finally { releaseExtraction(); }
 });

@@ -1,0 +1,44 @@
+---
+title: "Saving and Importing"
+description: "Separate the scope of server storage, individual graph JSON, integrated case snapshots and data directory backups."
+---
+
+The default storage is SQLite on the server. Browsers connected to the same server can view saved cases together. Manual card positions and some screen states are stored in each browser.
+
+## Import individual graphs [#개별-그래프-가져오기]
+
+Select the completed `.json` file from **Import Graph JSON** on the home page. If you are unable to connect because the server is not available, we offer a browser save alternative that you explicitly select on screen.
+
+| item | limit |
+| --- | --- |
+| file size | 2,000,000 bytes |
+| schema | `schemaVersion: "1.0"` |
+| Object, relationship, event | Up to 200, 500, 300 |
+| source·group | Up to 30·12 |
+
+Fields and references in the original JSON are validated first. A valid graph is saved as `origin: "imported"`, and a new graph ID is given in the save path. It does not automatically repair missing fields or incorrect IDs. A minimal example is in [GraphDocument contract](/en/docs/reference/graph-document).
+
+Uploading of original data is a separate route. Don't confuse the upload limit for large CSV/documents with the 2MB limit for finished graph JSON.
+
+## Two exports [#두-가지-내보내기]
+
+| screen | result | reimport |
+| --- | --- | --- |
+| individual graph | `그래프ID.graph.json` | Possible as long as it satisfies the general graph contract and size constraints. |
+| Integrated analysis case | `.case.json` Snapshot | Currently not supported |
+
+The integrated snapshot includes the entire integrated graph, history list, evidence connections, and attribute differences. The entire original text and the entire extraction results for each section are not included. Backups for full retention use the server data directory.
+
+## Server data backup [#서버-데이터-백업]
+
+Shut down the server and copy **the entire data directory** specified as default `.cluevia/` or `CLUEVIA_DATA_DIR`. While SQLite uses WAL, copying just one DB file may result in missing the most recent history.
+
+Completed upload files and saved partial results are maintained even after canceling the operation. Incomplete data from files whose transmission itself has been interrupted is cleaned up.
+
+## Browser Storage Alternatives [#브라우저-저장-대안]
+
+Graphs saved only in the browser can be used in the browser using the same protocol, host, and port. If you want to move it to another browser or device, export the JSON to import it. If storage space is insufficient or blocked, a save error will occur, so keep the original file.
+
+## Delete Case [#케이스-삭제]
+
+Deleting a case from your archive ends any ongoing work/conversation and deletes the corresponding results, records, conversations, and dedicated uploads. Data shared by other cases will be retained and externally created backups will not be deleted. Deletion is not a replacement for JSON export or server backup.

@@ -9,6 +9,8 @@ import { JobManager } from './jobs.ts';
 import type { CodexRunner, GenerationJob } from './jobs.ts';
 import { OntologyStore } from './ontology-store.ts';
 import { EVIDENCE_CHUNK_CHARS, splitEvidenceText } from './evidence-uploads.ts';
+import { getAnalysisRecord } from './analysis-case.ts';
+import { readJevConfig } from './jev.ts';
 
 function extraction(input: CodexInput): OntologyExtraction {
   return {
@@ -37,6 +39,36 @@ async function terminal(manager: JobManager, id: string): Promise<GenerationJob>
 const longText = 'Ocean Star is described in this synthetic test source.\n'.repeat(1400);
 const longSource = { id: 'long-source', name: 'Full source.txt', text: longText };
 const longRequest = { question: 'Ocean Star에 관한 자료를 전체 분석해주세요.', documents: [longSource] };
+
+for (const uploaded of [false, true]) test(`input-ready hook provides durable ${uploaded ? 'uploaded first-chunk' : 'inline'} text before hybrid ontology generation`, async t => {
+  const store = new OntologyStore(':memory:');
+  const document = { id: uploaded ? 'upload-real-part-1' : 'original', name: '원문.txt', text: 'Ocean Star appears in the actual first source chunk.' };
+  const reads: number[] = []; let designStarted = false; let observed: { job: GenerationJob; documents: EvidenceDocument[] } | undefined;
+  const uploads = uploaded ? {
+    get: (id: string) => ({ id, name: document.name, bytes: 100, characters: 100, chunkCount: 2, createdAt: new Date().toISOString() }),
+    getChunk: (_id: string, index: number) => { reads.push(index); return { ...document, text: index ? 'Later chunk not needed for the initial graph.' : document.text }; },
+    getChunkRange: (_id: string, index: number) => ({ start: index ? document.text.length : 0, end: index ? document.text.length + 'Later chunk not needed for the initial graph.'.length : document.text.length }),
+  } : undefined;
+  const manager = new JobManager(store, {}, async (input, _config, options) => {
+    assert.equal(input.purpose, 'ontology-design'); assert.ok(observed, 'input hook must fire before the ontology provider starts'); designStarted = true;
+    return await new Promise((_resolve, reject) => options?.signal?.addEventListener('abort', () => reject(new Error('test cancelled')), { once: true }));
+  }, uploads, { ontologyPlanning: true });
+  t.after(async () => { await manager.close(); store.close(); });
+  manager.onInputsReady((job, documents) => { observed = { job, documents }; const input = JSON.parse(String(store.db.prepare('SELECT input_json FROM generation_jobs WHERE id=?').get(job.id)!.input_json)); assert.equal(input.urlEvidenceResolved, true); });
+  const created = manager.create({ question: '자료를 정리해주세요.', documents: uploaded ? [] : [document], ...(uploaded ? { uploadIds: ['upload-real'] } : {}) });
+  for (let i = 0; i < 100 && !designStarted; i++) await delay(5);
+  assert.ok(designStarted, JSON.stringify(manager.get(created.id))); assert.ok(observed); assert.equal(observed.job.status, 'running'); assert.equal(observed.job.completedChunks, 0); assert.deepEqual(observed.job.graphIds, []);
+  assert.equal(observed.documents[0].id, document.id); assert.equal(observed.documents[0].text, document.text);
+  if (uploaded) assert.equal(reads[0], 0);
+  await manager.cancel(created.id); assert.equal(manager.get(created.id)!.status, 'cancelled');
+});
+
+test('an unavailable background graph listener never prevents main extraction', async t => {
+  const { manager } = setup(t, async input => extraction(input));
+  manager.onInputsReady(() => { throw new Error('background preparation unavailable'); });
+  const saved = await terminal(manager, manager.create({ question: '자료를 정리해주세요.', documents: [{ id: 'source', name: '원문', text: 'Ocean Star appears in this document.' }] }).id);
+  assert.equal(saved.status, 'completed', saved.error); assert.equal(saved.graphIds.length, 1);
+});
 
 test('all inline chunks are analyzed in order and each graph remains separately available', async t => {
   const calls: CodexInput[] = [];
@@ -105,6 +137,80 @@ test('all-empty input completes coverage but fails honestly and cannot be resume
   assert.equal(job.resumable, false); assert.throws(() => manager.resume(job.id));
 });
 
+test('valid empty hybrid results complete with their explanation and original evidence preserved', async t => {
+  const store = new OntologyStore(':memory:');
+  let calls = 0;
+  const manager = new JobManager(store, {}, async () => { calls++; return empty(); }, undefined, {});
+  t.after(async () => { await manager.close(); store.close(); });
+  const documents = [
+    { id: 'first', name: 'First source.txt', text: 'This supplied report describes deployment, without evidence of combat.' },
+    { id: 'second', name: 'Second source.txt', text: 'This second supplied report does not establish participation in combat.' },
+  ];
+  const job = await terminal(manager, manager.create({ question: '실제 전투 참여 근거가 있나요?', documents }).id);
+  assert.equal(job.status, 'completed', job.error);
+  assert.equal(job.error, undefined); assert.equal(job.errorCode, undefined);
+  assert.match(job.message, /질문에 답할 근거가 충분하지 않습니다/);
+  assert.equal(job.completedChunks, 2); assert.equal(job.emptyChunks, 2); assert.equal(calls, 2);
+  assert.equal(job.graphCount, 0); assert.deepEqual(job.graphIds, []); assert.equal(store.summary().graphs, 0);
+  assert.equal(job.resumable, false);
+  for (let number = 1; number <= 2; number++) {
+    const record = getAnalysisRecord(store.db, job, number)!;
+    assert.equal(record.record.archived, true); assert.equal(record.record.status, 'empty');
+    assert.equal(record.summary, empty().summary); assert.deepEqual(record.limitations, empty().limitations);
+    assert.equal(record.documents[0].text, documents[number - 1].text);
+  }
+});
+
+test('empty hybrid results requiring review remain failed instead of claiming a finished answer', async t => {
+  const store = new OntologyStore(':memory:');
+  const manager = new JobManager(store, {}, async () => { throw new Error('Unexpected Codex call.'); }, undefined, {
+    jev: { ...readJevConfig({ TYPESAFE_API_KEY: 'test-key-never-sent' }), fallback: false },
+    runJev: async () => ({ extraction: empty(), needsFallback: true }),
+  });
+  t.after(async () => { await manager.close(); store.close(); });
+  const job = await terminal(manager, manager.create({ question: '관련 근거를 확인해주세요.', documents: [longSource] }).id);
+  assert.equal(job.status, 'failed'); assert.match(job.error!, /검토가 필요한 부분/);
+  assert.equal(job.completedChunks, job.totalChunks); assert.equal(job.emptyChunks, job.totalChunks);
+  assert.ok(job.metrics!.reviewParts > 0); assert.equal(job.graphCount, 0);
+});
+
+test('empty hybrid finalization does not hide provider or extraction validation failures', async t => {
+  for (const failure of ['provider', 'validation'] as const) await t.test(failure, async t => {
+    const store = new OntologyStore(':memory:');
+    let calls = 0;
+    const manager = new JobManager(store, {}, async () => {
+      calls++;
+      if (failure === 'provider') throw new Error('Temporary provider outage.');
+      return { ...empty(), summary: 123 };
+    }, undefined, {});
+    t.after(async () => { await manager.close(); store.close(); });
+    const job = await terminal(manager, manager.create({ question: '자료를 분석해주세요.', documents: [longSource] }).id);
+    assert.equal(job.status, 'failed'); assert.ok(job.error);
+    assert.equal(job.completedChunks, 0); assert.equal(job.emptyChunks, 0); assert.equal(job.resumable, true);
+    assert.equal(calls, failure === 'provider' ? 1 : 2);
+    assert.equal(Number(store.db.prepare('SELECT count(*) AS n FROM analysis_record_archive WHERE job_id=?').get(job.id)!.n), 0);
+  });
+});
+
+test('restart recovers an empty hybrid answer only when every completed result remains archived', async t => {
+  for (const keepArchive of [true, false]) await t.test(keepArchive ? 'retained archive' : 'missing archive', async t => {
+    const store = new OntologyStore(':memory:');
+    const first = new JobManager(store, {}, async () => empty(), undefined, {});
+    const finished = await terminal(first, first.create({ question: '관련 근거를 확인해주세요.', documents: [{ id: 'source', name: 'Source.txt', text: 'This report does not contain evidence relevant to the question.' }] }).id);
+    assert.equal(finished.status, 'completed', finished.error);
+    await first.close();
+    store.db.prepare('UPDATE generation_jobs SET payload=? WHERE id=?').run(JSON.stringify({ ...finished, status: 'running', graphIds: undefined }), finished.id);
+    if (!keepArchive) store.db.prepare('DELETE FROM analysis_record_archive WHERE job_id=?').run(finished.id);
+    let calls = 0;
+    const second = new JobManager(store, {}, async () => { calls++; return empty(); }, undefined, {});
+    t.after(async () => { await second.close(); store.close(); });
+    const recovered = second.get(finished.id)!;
+    assert.equal(recovered.status, keepArchive ? 'completed' : 'failed');
+    if (keepArchive) { assert.equal(recovered.error, undefined); assert.match(recovered.message, /판단 이유와 원문/); }
+    assert.equal(recovered.resumable, false); assert.equal(calls, 0); assert.equal(recovered.graphCount, 0);
+  });
+});
+
 test('a large sequence of blank chunks yields so cancellation stops further reads', async t => {
   let read = 0; let calls = 0;
   const uploads = {
@@ -165,6 +271,54 @@ test('cancel and immediate resume retain the first graph without saving the canc
   assert.equal(completed.graphIds[0], cancelled.graphIds[0]);
   assert.equal(calls, completed.totalChunks + 1);
   assert.equal(store.summary().graphs, completed.totalChunks);
+});
+
+test('independent cases overlap and cancelling one preserves the other case and its evidence', { timeout: 5000 }, async t => {
+  const store = new OntologyStore(':memory:');
+  const held = new Map<string, { signal: AbortSignal; release: () => void }>();
+  let notifyBoth!: () => void;
+  const bothStarted = new Promise<void>(resolve => { notifyBoth = resolve; });
+  const manager = new JobManager(store, { jobConcurrency: 2, concurrency: 2 }, async (input, _config, options) => {
+    const signal = options?.signal; assert.ok(signal);
+    let abort!: () => void;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        abort = () => reject(signal.reason);
+        signal.addEventListener('abort', abort, { once: true });
+        held.set(input.documents[0].text, { signal, release: resolve });
+        if (held.size === 2) notifyBoth();
+      });
+      return extraction(input);
+    } finally { signal.removeEventListener('abort', abort); }
+  }, undefined, {});
+  t.after(async () => { await manager.close(); store.close(); });
+  const firstDocument = { id: 'case-one-source', name: 'first-case.txt', text: 'Ocean Star appears in the first northern case record.' };
+  const secondDocument = { id: 'case-two-source', name: 'second-case.txt', text: 'Ocean Star appears in the second southern case record.' };
+  const first = manager.create({ question: '첫 번째 사건의 선박을 확인해주세요.', documents: [firstDocument] });
+  const secondQuestion = '두 번째 사건의 선박을 확인해주세요.';
+  const second = manager.create({ question: secondQuestion, documents: [secondDocument] });
+  await bothStarted;
+  assert.equal(manager.get(first.id)!.status, 'running');
+  assert.equal(manager.get(second.id)!.status, 'running');
+  assert.equal(store.summary().graphs, 0, 'both cases reach held model work before either completes');
+  const firstCall = held.get(firstDocument.text)!; const secondCall = held.get(secondDocument.text)!;
+  assert.notEqual(firstCall.signal, secondCall.signal);
+
+  manager.cancel(first.id);
+  assert.equal(firstCall.signal.aborted, true);
+  assert.equal(secondCall.signal.aborted, false);
+  assert.equal(manager.get(second.id)!.status, 'running');
+  secondCall.release();
+  const completed = await terminal(manager, second.id);
+  assert.equal(completed.status, 'completed', completed.error);
+  assert.equal(manager.get(first.id)!.status, 'cancelled');
+  assert.deepEqual(manager.get(first.id)!.graphIds, []);
+  assert.equal(completed.graphIds.length, 1); assert.equal(store.summary().graphs, 1);
+  const graph = store.getGraph(completed.graphId!)!;
+  assert.equal(graph.question, secondQuestion);
+  assert.deepEqual(graph.sources.map(source => ({ id: source.id, title: source.title, excerpt: source.excerpt })), [{ id: secondDocument.id, title: secondDocument.name, excerpt: secondDocument.text }]);
+  assert.ok(graph.nodes.every(node => node.sourceIds.every(id => id === secondDocument.id)));
+  assert.equal(secondCall.signal.aborted, false);
 });
 
 test('one repair is allowed per invalid chunk and failure leaves only prior validated graphs', async t => {

@@ -119,6 +119,33 @@ export const leanOntologyBlueprintSchema: Record<string, unknown> = {
   })(),
 };
 
+/** The design stage cannot produce Jev rules or mappings for sources without columns.
+ * Keep the editable blueprint contracts above intact; send only the applicable contract
+ * to the model and leave optional rule planning to its own validated stage. */
+const planningSchemas = new Map<string, Record<string, unknown>>();
+export function ontologyPlanningSchema(options: { advanced: boolean; structured: boolean }): Record<string, unknown> {
+  const key = `${options.advanced}:${options.structured}`;
+  const existing = planningSchemas.get(key);
+  if (existing) return existing;
+  const schema = structuredClone(options.advanced ? ontologyBlueprintSchema : leanOntologyBlueprintSchema);
+  const fields = propertiesOf(schema);
+  const processing = propertiesOf(full.processing);
+  const emptyArray = array({ type: 'null' }, 0);
+  fields.processing = object({
+    textStrategy: processing.textStrategy,
+    jevEligibleLinkTypes: processing.jevEligibleLinkTypes,
+    rationale: { type: 'string', maxLength: 240 },
+    decisionRules: emptyArray,
+  });
+  if (!options.structured) fields.sourceMappings = structuredClone(emptyArray);
+  // Explanations clarify domain decisions, but do not repeat the supplied evidence.
+  fields.description = { type: 'string', maxLength: 400 };
+  propertiesOf(itemsOf(fields.objectTypes)).description = { type: 'string', maxLength: 240 };
+  propertiesOf(itemsOf(fields.linkTypes)).description = { type: 'string', maxLength: 200 };
+  planningSchemas.set(key, schema);
+  return schema;
+}
+
 function record(value: unknown, path: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new GraphValidationError(`${path}: 객체가 필요합니다.`);
   return value as Record<string, unknown>;

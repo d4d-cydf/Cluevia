@@ -1,0 +1,12 @@
+{
+  "title": "Core Algorithm: Specification and Methodology",
+  "pages": [
+    "overview",
+    "model",
+    "gap-find",
+    "confidence",
+    "gap-fill",
+    "worked-example",
+    "implementation"
+  ]
+}

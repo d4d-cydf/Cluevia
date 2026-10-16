@@ -1,0 +1,203 @@
+---
+title: "GraphDocument"
+description: "schemaVersion 1.0 的字段示例、大小限制与引用规则，用于准备可导入的 JSON。"
+---
+
+`GraphDocument` 是公开示例、导入 JSON 和单次分析结果共同使用的图显示契约。类型定义位于 `src/types/graph.ts`，运行时验证位于 `src/lib/graph-document.ts`。
+
+## 有效的最小示例 [#유효한-최소-예제]
+
+将以下内容保存为 UTF-8 JSON 文件，即可通过 **Load Graph JSON** 打开。这是用于说明格式的虚构资料，不是实际事件的证据。
+
+```json title="minimal.graph.json"
+{
+  "schemaVersion": "1.0",
+  "id": "research-note",
+  "title": "프로젝트 자료 정리",
+  "question": "자료에 등장하는 프로젝트는 무엇인가?",
+  "summary": "프로젝트 소개 메모에 등장하는 대상을 정리했습니다.",
+  "origin": "imported",
+  "createdAt": "2026-10-01T09:00:00+09:00",
+  "limitations": ["형식 설명용 가상 자료입니다."],
+  "groups": [
+    { "id": "projects", "label": "프로젝트", "color": "#B8321A" }
+  ],
+  "sources": [
+    {
+      "id": "note-1",
+      "title": "프로젝트 소개 메모",
+      "excerpt": "Cluevia는 자료의 객체와 관계를 살펴보는 프로젝트입니다."
+    }
+  ],
+  "nodes": [
+    {
+      "id": "cluevia",
+      "label": "Cluevia",
+      "type": "project",
+      "group": "projects",
+      "description": "메모에 소개된 프로젝트",
+      "sourceIds": ["note-1"],
+      "properties": {}
+    }
+  ],
+  "edges": [],
+  "events": [],
+  "findings": []
+}
+```
+
+## 顶层字段 [#최상위-필드]
+
+以下字段均为必需字段。即使数组为空，也必须保留字段本身。
+
+| 字段 | 类型与限制 | 含义 |
+| --- | --- | --- |
+| `schemaVersion` | `"1.0"` | 目前支持的方案版本 |
+| `id` |  ID ,最大80个字符 | 图 ID，不允许使用冒号 |
+| `title` | 字符串，1–200 个字符 | 案件标题 |
+| `question` | 字符串，1–2,000 个字符 | 分析问题 |
+| `summary` | 字符串，1–5,000 个字符 | 总结 |
+| `origin` | `published-source`, `imported`, `aip`, `codex`, `jev`, `structured`, `demo` | 生成途径 |
+| `createdAt` |  ISO 日期或时间 | 文件的编写时 |
+| `limitations` | 字符串数组，0–20 项 | 解释限制；每项 1–1,000 字符 |
+| `groups` |  `GraphGroup[]` , 1–12 | 对象分类 |
+| `sources` |  `GraphSource[]` , 1–30 | 支持数据 |
+| `nodes` |  `GraphNode[]` , 1–200 | 对象 |
+| `edges` |  `GraphEdge[]` , 0–500 | 关系 |
+| `events` |  `GraphEvent[]` , 0–300 | 事件与日期 |
+| `findings` |  `GraphFinding[]` , 0–30 | 分析句子 |
+
+可选字段 `ontologyId` 与 `ontologyVersion` 须同时使用。ID 遵循普通 ID 规则，版本为大于或等于 1 的安全整数。上述数量限制适用于单个图；整合多条记录的服务器案例投影另行处理。
+
+## 组 · GraphGroup [#그룹--graphgroup]
+
+| 字段 | 要求 | 规则 |
+| --- | --- | --- |
+| `id` | 是 | ID |
+| `label` | 是 | 1–100 个字符 |
+| `color` | 是 | 恰好六位十六进制颜色值 `#RRGGBB` |
+
+## 来源 · GraphSource [#출처--graphsource]
+
+| 字段 | 要求 | 规则 |
+| --- | --- | --- |
+| `id` | 是 | ID |
+| `title` | 是 | 1–300 个字符 |
+| `url` | 否 | 最长 2,048 字符的 HTTP 或 HTTPS URL，不允许用户名或密码 |
+| `publisher` | 否 | 1–150 个字符 |
+| `publishedAt` | 否 |  ISO 日期或时间 |
+| `accessedAt` | 否 |  ISO 日期或时间 |
+| `excerpt` | 否 | 1–1,200 个字符 |
+| `contentHash`, `sourceFamily` | 否 | 64 位小写十六进制哈希 |
+
+来源仅包含标题和 ID、没有 URL 时仍然有效。URL 经 `URL` 解析器规范化，供浏览器展示来源时跳转原文使用，不会自动采集该 URL 的内容。
+
+## 对象 · GraphNode [#객체--graphnode]
+
+| 字段 | 要求 | 规则 |
+| --- | --- | --- |
+| `id` | 是 | ID |
+| `label` | 是 | 1–180 个字符 |
+| `type` | 是 | 1–80 字符；不存在预先固定的类型列表 |
+| `group` | 是 | 已存在的组 ID |
+| `description` | 是 | 0–2,000 字符；允许空字符串 |
+| `sourceIds` | 是 | 来源引用，至少 1 项 |
+| `properties` | 是 | 值为字符串的对象，最多 25 个属性；允许空对象 |
+
+`properties` 的键为 1–100 字符的字符串，值为 0–500 字符的字符串。在导入 JSON 中，数字与布尔值也须写成字符串。键和值两端的空白字符会被移除。
+
+## 关系 · GraphEdge [#관계--graphedge]
+
+| 字段 | 要求 | 规则 |
+| --- | --- | --- |
+| `id` | 是 | ID |
+| `source` | 是 | 启动对象 ID  |
+| `target` | 是 | 终点对象 ID  |
+| `label` | 是 | 1–150 个字符 |
+| `description` | 是 | 0–2,000 个字符 |
+| `status` | 是 |  `reported` 或 `inferred`  |
+| `sourceIds` | 是 | 来源引用，至少 1 项 |
+| `highlighted` | 否 | 布尔值。是否突出显示主要关系 |
+| `claim` | 否 | 在数据中表达的主张态度，主题，时间和转引 |
+
+`source` 与 `target` 均须存在。允许指向自身的关系，也允许同一对象对之间有多条关系，但每条关系的 `id` 必须不同。
+
+### 关系主张 · RelationClaim [#관계-주장--relationclaim]
+
+使用 `claim` 时，须包含下列全部字段。除 `stance` 外，未知值使用 `null`。
+
+| 字段 | 值 |
+| --- | --- |
+| `stance` | `asserted`, `denied`, `retracted`, `uncertain` |
+| `attributedTo`, `derivedFrom` | 主张提出主体与转引来源；各为 1–500 字符的字符串或 `null` |
+| `validFrom`, `validTo`, `publishedAt` | 有效的 ISO 日期、时间或 `null` |
+
+若有效期间的结束时间早于开始时间，则拒绝输入。用户审查状态 `review` 是服务器案例中的附加信息，不是普通 JSON 解析器保存的字段。
+
+## 事件 · GraphEvent [#사건--graphevent]
+
+| 字段 | 要求 | 规则 |
+| --- | --- | --- |
+| `id` | 是 | ID |
+| `label` | 是 | 1–180 个字符 |
+| `date` | 是 |  ISO 日期或时间 |
+| `endDate` | 否 | 不早于开始时间的 ISO 日期或时间 |
+| `description` | 是 | 0–2,000 个字符 |
+| `nodeIds` | 是 | 对象参考，至少1 |
+| `sourceIds` | 是 | 来源引用，至少 1 项 |
+
+## 分析结论 · GraphFinding [#분석--graphfinding]
+
+| 字段 | 要求 | 规则 |
+| --- | --- | --- |
+| `text` | 是 | 1–2,000 个字符 |
+| `sourceIds` | 是 | 来源引用，至少 1 项 |
+| `nodeIds` | 是 | 对象引用；允许空数组 |
+| `edgeIds` | 否 | 关系引用；允许空数组 |
+
+分析结论没有单独的 `id`。即使 `nodeIds: []`，仍须提供依据来源 `sourceIds`。
+
+## 共同的验证规则 [#공통-검증-규칙]
+
+### ID 与引用 [#id와-참조]
+
+ID 最多 80 字符，须以英文字母或数字开头；后续仅允许英文字母、数字、句点、下划线、冒号和连字符。只有顶层图的 `id` 不允许使用冒号。
+
+```text
+일반 ID: /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/
+그래프 ID: /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
+```
+
+`groups`、`sources`、`nodes`、`edges`、`events` 的各数组内部均不允许重复 ID；不同类型数组之间不执行全局去重。
+
+每个引用数组最多包含 200 项，不得重复同一 ID。来源引用须存在于 `sources`，对象引用须存在于 `nodes`，关系引用须存在于 `edges`，对象的组引用须存在于 `groups`。
+
+### 字符串与可选字段 [#문자열과-선택-필드]
+
+先检查字符串长度，再移除首尾空白。不允许空值的字段也会拒绝仅含空白字符的字符串。表中的字符限制以 JavaScript 字符串的 `length` 为准，并非 UTF-8 字节数。
+
+未使用的可选字段应省略；普通可选字段中的 `null` 不能替代省略。`claim` 内部允许为空的值遵循前述契约。未知字段从验证结果中移除。
+
+### 日期 [#날짜]
+
+日期可只包含年月日，也可使用带秒和时区的 ISO 时间。小数秒允许 1–3 位。
+
+```text
+2026-10-01
+2026-10-01T09:30:00+09:00
+2026-10-01T00:30:00.123Z
+```
+
+不存在的日历日期、缺少时区的时间，以及早于开始时间的结束日期均会被拒绝。
+
+## 文件大小和错误 [#파일-크기와-오류]
+
+`parseGraphText` 与文件导入的大小限制为 **2,000,000 字节**，按 UTF-8 大小计算，与 `parseGraphDocument` 的对象验证分开处理。浏览器存储替代方案也会检查待保存 JSON 的大小。
+
+验证遇到首个错误即停止。错误路径取决于检查位置和类型，例如 `node.label`、`edge 관계ID` 与 `events[0]`；并非所有错误都使用数组序号，也可能使用 ID。
+
+<Callout title={"导入时修改的值"}>
+系统先验证文档原始字段及引用，再将 `origin` 改为 `imported`，分配新的图 ID 后保存。服务器导入会移除 `ontologyId` 与 `ontologyVersion` 的关联，并注明未包含原始本体定义及已验证对象数据这一限制。
+</Callout>
+
+普通图 JSON 用于显示数据，不是恢复服务器全部本体、原文及分析记录的备份格式。当前不支持重新导入整合的 `.case.json`。参见[保存与导入](/zh/docs/guide/import-export)。

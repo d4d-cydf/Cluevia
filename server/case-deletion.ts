@@ -59,7 +59,7 @@ export function deleteStoredCase(db: DatabaseSync, jobId: string): string[] {
   const input = row.input_json ? JSON.parse(String(row.input_json)) as { uploadIds?: string[] } : {};
   db.exec('PRAGMA secure_delete=ON; BEGIN IMMEDIATE');
   try {
-    for (const table of ['analysis_parts', 'analysis_plans', 'analysis_decisions', 'analysis_record_archive', 'evidence_search_terms', 'evidence_search', 'evidence_search_versions', 'claim_reviews', 'claim_review_history', 'case_chat_turns']) if (exists(db, table)) db.prepare(`DELETE FROM ${table} WHERE job_id=?`).run(jobId);
+    for (const table of ['analysis_parts', 'analysis_plans', 'analysis_decisions', 'analysis_record_archive', 'evidence_search_terms', 'evidence_search', 'evidence_search_versions', 'claim_reviews', 'claim_review_history', 'case_chat_turns', 'case_reports']) if (exists(db, table)) db.prepare(`DELETE FROM ${table} WHERE job_id=?`).run(jobId);
     db.prepare('DELETE FROM generation_jobs WHERE id=?').run(jobId);
     const removable = ids.filter(id => !jobForGraph(db, id));
     removeGraphs(db, removable);

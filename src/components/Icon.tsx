@@ -1,6 +1,7 @@
 import type { SVGProps } from 'react';
 
 const paths = {
+  board: 'M3 3h6v6H3zM15 15h6v6h-6zM15 3h6v6h-6zM6 9v9h9M9 6h6',
   plus: 'M12 5v14M5 12h14',
   attach: 'M20 11.5 12.6 18.9a5 5 0 0 1-7.1-7.1l7.8-7.8a3.3 3.3 0 0 1 4.7 4.7l-7.8 7.8a1.7 1.7 0 0 1-2.4-2.4l7.1-7.1',
   send: 'M12 19V5.5M6.5 11 12 5.5l5.5 5.5',

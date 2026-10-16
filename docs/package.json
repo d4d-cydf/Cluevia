@@ -1,0 +1,40 @@
+{
+  "name": "cluevia-docs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "predev": "node scripts/ensure-dependencies.mjs",
+    "dev": "node scripts/prepare-assets.mjs && next dev --hostname 127.0.0.1 --port 3001",
+    "prebuild": "node scripts/ensure-dependencies.mjs",
+    "build": "node scripts/prepare-assets.mjs && next build --webpack",
+    "postbuild": "node scripts/normalize-export.mjs",
+    "serve": "node scripts/serve.mjs",
+    "pretypecheck": "node scripts/ensure-dependencies.mjs",
+    "typecheck": "node scripts/prepare-assets.mjs && fumadocs-mdx && next typegen && tsc --noEmit",
+    "postinstall": "fumadocs-mdx"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "dependencies": {
+    "fumadocs-core": "16.17.1",
+    "fumadocs-mdx": "15.4.7",
+    "fumadocs-ui": "16.17.1",
+    "katex": "0.19.0",
+    "lucide-react": "^0.577.0",
+    "next": "16.4.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.2.0",
+    "@types/katex": "0.16.8",
+    "@types/mdx": "^2.0.13",
+    "@types/node": "^22.20.5",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "tailwindcss": "^4.2.0",
+    "typescript": "~5.9.3"
+  }
+}

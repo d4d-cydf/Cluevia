@@ -5,9 +5,20 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { buildColumnMappings, buildOntologyDefinition, commerceBlueprintTemplate, ontologyBlueprintSchema, leanOntologyBlueprintSchema } from './ontology-builder.ts';
+import { buildColumnMappings, buildOntologyDefinition, commerceBlueprintTemplate, ontologyBlueprintSchema, leanOntologyBlueprintSchema, ontologyPlanningSchema } from './ontology-builder.ts';
 import { ontologyDefinitionSchema, parseOntologyDefinition } from './ontology-schema.ts';
-import { designOntology } from './ontology-planner.ts';
+import { designOntology, planningSources } from './ontology-planner.ts';
+
+test('expanded URL articles share one planning profile while retaining separately attributed input documents', async () => {
+  const documents = Array.from({ length: 8 }, (_, index) => ({ id: `url-${index}`, identityScope: `url-source-${index}`, name: 'Pasted source text', url: `https://news.example/${index}`, text: `Original article ${index}` }));
+  const original = structuredClone(documents);
+  const profiles = planningSources({ question: '기사 내용을 분석해주세요.', documents });
+  assert.equal(profiles.length, 1);
+  const pieces: string[] = [];
+  for await (const piece of profiles[0].pieces()) pieces.push(piece);
+  assert.deepEqual(pieces, documents.map(document => document.text));
+  assert.deepEqual(documents, original);
+});
 
 test('compact domain blueprint expands defaults and same-name column mappings without mutating the input', () => {
   const blueprint = commerceBlueprintTemplate(); const original = JSON.stringify(blueprint);
@@ -82,11 +93,11 @@ test('compact planning repairs source columns before separately planning advisor
   const definition = await designOntology({ question: '주문과 메모의 근거를 분석해줘', documents: [{ id: 'orders', name: 'orders.csv', text: 'customerId,name,orderId,amount,note\nC-1,Alice,O-1,10,Customer directly confirmed the order.\nC-2,Bob,O-2,20,The note cites a prior confirmation.' }] }, undefined, async (input, config) => {
     calls++;
     if (input.purpose === 'jev-planning') {
-      assert.equal(calls, 3); assert.equal(config?.effort, 'xhigh');
+      assert.equal(calls, 3); assert.equal(config?.effort, 'high');
       return { decisionRules: [rule] };
     }
     assert.equal(input.purpose, 'ontology-design');
-    assert.equal(config?.effort, 'high');
+    assert.equal(config?.effort, 'medium');
     assert.match(input.context ?? '', /decisionRules=\[\]/);
     if (calls > 1) { assert.match(input.context ?? '', /원문에 없는 열/); return blueprint; }
     const invalid = structuredClone(blueprint);
@@ -131,12 +142,48 @@ test('ordinary design omits unused property extensions and explicitly retains ad
   mapping.retainedColumns = ['importBatch'];
   let calls = 0;
   const result = await designOntology({ question: '고객 주문 관계', documents: [{ id: 'orders', name: 'orders.csv', text: 'customerId,name,orderId,amount,importBatch\nC1,Alex,O1,50,BATCH-1' }] }, undefined, async input => {
-    calls++; assert.deepEqual(input.schema, leanOntologyBlueprintSchema); return blueprint;
+    calls++; assert.deepEqual(input.schema, ontologyPlanningSchema({ advanced: false, structured: true })); return blueprint;
   }, {}, { id: 'minimal-retained', signal: new AbortController().signal, usage: () => {}, progress: () => {} });
   assert.equal(calls, 1); assert.deepEqual(result.sourceMappings[0].retainedColumns, ['importBatch']);
   assert.ok(!result.objectTypes.some(type => type.properties.some(property => property.apiName === 'importBatch')));
   mapping.retainedColumns = ['customerId'];
   assert.throws(() => buildOntologyDefinition(blueprint), /겹칠 수 없습니다/);
+});
+
+test('design schemas exclude unavailable work while retaining mapping, composite and advanced contracts', () => {
+  const originals = JSON.stringify([ontologyBlueprintSchema, leanOntologyBlueprintSchema]);
+  for (const advanced of [false, true]) for (const structured of [false, true]) {
+    const options = { advanced, structured };
+    const schema = ontologyPlanningSchema(options);
+    const fields = schema.properties as Record<string, Record<string, unknown>>;
+    const base = advanced ? ontologyBlueprintSchema : leanOntologyBlueprintSchema;
+    const baseFields = base.properties as Record<string, Record<string, unknown>>;
+    const processing = fields.processing.properties as Record<string, Record<string, unknown>>;
+    assert.equal(processing.decisionRules.maxItems, 0, 'optional Jev rules cannot delay or expand schema design');
+    assert.deepEqual(fields.extensions, baseFields.extensions);
+    assert.deepEqual(schema.$defs, base.$defs, 'arrays, structs, constraints and shared definitions stay available');
+    if (structured) assert.deepEqual(fields.sourceMappings, baseFields.sourceMappings, 'all exact columns and relations remain expressible');
+    else {
+      assert.equal(fields.sourceMappings.maxItems, 0);
+      assert.ok(!JSON.stringify(fields.sourceMappings).includes('sourceColumn'), 'non-tabular work omits the mapping contract');
+    }
+    assert.equal(ontologyPlanningSchema(options), schema, 'the four contracts are reused between calls');
+    const definitions = schema.$defs as Record<string, unknown>;
+    const check = (value: unknown): void => {
+      if (!value || typeof value !== 'object') return;
+      if (Array.isArray(value)) { value.forEach(check); return; }
+      const node = value as Record<string, unknown>;
+      if (typeof node.$ref === 'string') assert.ok(Object.hasOwn(definitions, node.$ref.slice('#/$defs/'.length)), node.$ref);
+      if (node.type === 'object') {
+        assert.equal(node.additionalProperties, false);
+        assert.deepEqual(node.required, Object.keys(node.properties as Record<string, unknown>));
+      }
+      Object.values(node).forEach(check);
+    };
+    check(schema);
+  }
+  assert.equal(JSON.stringify([ontologyBlueprintSchema, leanOntologyBlueprintSchema]), originals, 'public editable contracts remain unchanged');
+  assert.ok(JSON.stringify(ontologyPlanningSchema({ advanced: false, structured: false })).length < JSON.stringify(leanOntologyBlueprintSchema).length * 0.75);
 });
 
 test('local builder CLI produces valid JSON and rejects malformed JSON without echoing input or credentials', () => {

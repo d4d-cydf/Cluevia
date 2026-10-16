@@ -1,0 +1,190 @@
+---
+title: "树结构模型与数据契约"
+description: "Why-not Tree、资料类型叶节点、候选证据树、判定枚举与缺口记录的具体数据契约。"
+---
+
+仅将资料表示为一个节点，并不足以说明它满足了哪项主张的哪个条件。因此，模型须区分资料本身、待检验的主张，以及对两者关联的判定。本节据此定义 Why-not Tree 的存储单元和引用约束。下述类型属于用于说明概念的设计契约；对应的实现契约见 `src/types/why-not.ts`。扩展资料类型与建议策略是否已实现，应另行标明。
+
+## Why-not Tree 的含义 [#why-not-tree의-의미]
+
+根节点表示待检验的主张。内部节点表示子主张以及 AND、OR 或 NOT_SUPPORT 运算。最底层的证据 leaf 引用已实际取得资料中的特定片段。尚未取得的资料应保留为**证据要求**，不能创建为已经存在的证据 leaf。
+
+<ResearchDiagram kind="tree" number="M1" />
+
+<Equation number="M1" label={"创建母主张的先决条件"} tex={String.raw`H=C_1\land C_2=(L_1\lor L_2)\land C_2`} />
+
+这里的父节点是**主张或运算节点**，不是叶节点。界面虽可按树展开，存储仍使用共享同一资料引用的 DAG。主张依赖不允许成环；独立来源引用图中的循环则应检测、记录并终止追踪。
+
+## 数据类型和来源评估之间的区别 [#자료-형태와-출처-평가의-구분]
+
+| 字段 | 角色 | 示例 |
+| --- | --- | --- |
+| `artifactKind` | 叶节点资料形式 | `DOCUMENT`, `STRUCTURED_RECORD`, `IMAGE`, `AUDIO`, `VIDEO`, `WEB_PAGE`, `OTHER` |
+| `mimeType`, `format` | 实际文件格式 | `text/csv`, PDF, JSONL, PNG |
+| `sourceType` | 出版/创建实体和数据的性质 | 原始工作记录，直接观察，重新引用的文章 |
+| `sourceGrade` | 来源评级 | A/B/C/D/E或没有评级 |
+| `verdict` | 你是否支持一个具体的说法? |  `SUPPORTED` 等等。 |
+
+资料类型与来源类型的详细分类属于建议。当前应用主要分析 UTF-8 文本；虽然设计中包含 PDF、图像、音频等叶节点类型，相应抽取能力尚未实现。完成抽取前，应通过 `processingStatus` 保持待处理状态。
+
+## 逻辑节点和证据要求 [#논리-노드와-증거-요구]
+
+```ts
+type LogicOperator = 'AND' | 'OR' | 'NOT_SUPPORT';
+
+type LogicNode = {
+  id: string;
+  kind: 'claim' | 'requirement';
+  statement: string;
+  operator: LogicOperator;
+  children: string[]; // 논리 노드 또는 evidence binding의 ID
+  eventRuleId: string | null;
+  threshold: number | null; // null이면 별도 하위 임계값 없음
+  negativeOf: string | null; // NOT_SUPPORT가 입증할 부정 대상
+};
+
+type EvidenceNeed = {
+  requirementId: string;
+  targetClaimId: string;
+  acceptableKinds: string[];
+  requiredFields: string[];
+  acceptanceCriteria: string[];
+  eventScopeId: string;
+};
+```
+
+`claim` 的 children 为空属于逻辑设计错误。`requirement` 可因尚无资料而为空，此时记录 `EVIDENCE_MISSING`。不得删除 AND 的必要 requirement，将其变为较弱的主张。
+
+AND 和 OR 的选择必须预先说明哪些证据组合足以成立。若使用“签收凭证 OR 日志”，应定义两者各自单独能够满足哪项子主张。不能仅因“有两份资料”就自动选择 OR。
+
+## NOT_SUPPORT 的含义与适用条件 [#not_support의-의미와-적용-조건]
+
+**定义：** NOT_SUPPORT 是用于证明否定命题的证据的 AND 组合。
+
+例如，要证明“截止时刻前未取消”，应分别核实对象身份、完整核查时段、取消记录的完整性及该时段的结果等必要条件。不能仅因在部分日志中找不到取消条目，就判定通过。
+
+```text
+NOT_SUPPORT(취소되었다)
+  = AND(대상 일치, 확인 구간 충족, 기록 완전성, 취소 없음의 직접 근거)
+```
+
+<ResearchDiagram kind="negative" number="M2" />
+
+<Equation number="M2" label={"负主张所需条件的组合"} tex={String.raw`\operatorname{NOT\_SUPPORT}(H)=\bigwedge_{i=1}^{n} C_i^{-}`} />
+
+在这里，Ci−是为了证明否定的说法所指定的必要条件。
+
+该规则不同于计算补事件概率 `1 − P(A)` 的 NOT 运算。可信度同样通过 AND 组合已取得的**支持否定命题的证据**计算。缺失必要资料时，应保留相应证据缺口。
+
+## Evidence 与 binding [#evidence와-binding]
+
+Evidence 表示资料本身，binding 表示某个资料片段与特定主张要求之间的关联。判定按 **binding** 保存，不作为整份资料永久不变的属性。
+
+<ResearchDiagram kind="binding" number="M3" />
+
+```ts
+type Evidence = {
+  id: string;
+  artifactKind: string;
+  contentHash: string;
+  sourceId: string;
+  sourceUrl: string | null;
+  capturedAt: string;
+  processingStatus: 'READY' | 'PENDING' | 'FAILED';
+};
+
+type EvidenceBinding = {
+  id: string;
+  evidenceId: string;
+  parentClaimId: string;
+  requirementId: string;
+  locator: { kind: 'text' | 'row' | 'page' | 'time'; value: string };
+  quote: string | null;
+  decisionId: string | null;
+  eventMetadataId: string | null;
+  evidenceAtomId: string | null;
+};
+```
+
+`locator` 表示文本偏移、行 ID、页码或视频时间等位置，实际实现须加入各类型的验证。一份文档可以满足两项 requirement，但两个 binding 若使用同一观测，可信度计算中不能将其计为两份独立证据。
+
+## 数据判断和当前实施之间的关系 [#자료-판정-enum과-현재-구현의-관계]
+
+以下 enum 定义资料对主张的适合性判定契约。**仅允许 `SUPPORTED` 通过适合性关卡**属于已确定要求。
+
+| 价值 | 的意思 | 1-4加工 |
+| --- | --- | --- |
+| `SUPPORTED` | 本节通过指定的标准支持相应的子主张。 | 通过 |
+| `REFUTED` | 片段提供与对应要求相反的内容 | 不合格；反证另行保留 |
+| `INSUFFICIENT` | 有关，但无法证明所要求的事实。 | 不合格，不充分的领域描述 |
+| `IRRELEVANT` | 不与主张/要求直接相关 | 资格不合格，无关原因的解释 |
+| `UNREVIEWED` | 审判还没有完结 | 尚未通过，标记为不完整 |
+
+判定记录包含 `bindingId`、`verdict`、`reason`、`supportingLocators`、`missingRequirements`、`evaluator`、`modelVersion`、`promptVersion` 和 `createdAt`。`SUPPORTED` 同样必须提供原文片段与理由，不能接受没有原文依据的自由陈述作为判定。
+
+当前应用的 `reported/inferred`、`claim.stance` 与用户审查状态 `supported/disputed/needs-review/unreviewed` 含义各不相同。例如，`claim.stance=denied` 的资料可以支持“存在一份否认声明”这一主张。不能把现有 enum 无条件复制为新的适合性判定。
+
+反证从支持集合中排除，但保留在诊断界面。若反证在同一事件中直接冲突于目标，应生成带 `CONTRADICTORY_EVIDENCE` 原因的 `EVIDENCE_INSUFFICIENT`，保持待审查状态，不自动确认结论。
+
+## 候选组的识别和同等性 [#후보-집합의-식별과-동등성]
+
+候选证据树是在原 Why-not Tree 中选择**一条成立路径**的候选结构。仅保存资料 ID 集合不足以记录所选分支与要求关联，因此采用下述结构。
+
+```ts
+type WitnessTree = {
+  id: string;
+  treeVersion: string;
+  chosenBranches: Record<string, string[]>;
+  bindingsByRequirement: Record<string, string[]>;
+  evidenceIds: string[];
+  eventConstraintResults: string[];
+  status: 'ACTIVE' | 'REJECTED' | 'PENDING';
+  rejectionGapIds: string[];
+};
+```
+
+即使资料 ID 集合相同，requirement 关联或事件角色不同的候选也不能合并。退出代表集合的树仍保留，并记录状态与淘汰阶段。
+
+## 差距记录 [#gap-기록]
+
+```ts
+type GapType =
+  | 'EVIDENCE_MISSING' | 'EVIDENCE_INSUFFICIENT' | 'EVENT_MISMATCH'
+  | 'TRUST_WEAK' | 'PROVENANCE_UNKNOWN' | 'CHAIN_UNKNOWN';
+
+type Gap = {
+  id: string;
+  runId: string;
+  type: GapType;
+  stage: '1-3' | '1-4' | '1-5' | '1-7' | '1-8' | 'FINAL';
+  claimId: string;
+  requirementIds: string[];
+  witnessIds: string[];
+  evidenceIds: string[];
+  reasonCode: string;
+  explanation: string;
+  expected: unknown;
+  observed: unknown;
+  blockingScope: 'ALTERNATIVE' | 'SUBCLAIM' | 'ROOT';
+  causeGapIds: string[];
+  evaluationState: 'COMPLETE' | 'PENDING';
+};
+```
+
+缺口记录不仅保存原因文本，还保存期望值与观测值。多种缺口可同时存在；`CHAIN_UNKNOWN` 通过 `causeGapIds` 关联具体原因，不覆盖详细缺口。
+
+## 运行和结果版本 [#실행과-결과-버전]
+
+每次运行固定 `treeVersion`、`evidenceSnapshotId`、`decisionVersion`、`eventRuleVersion` 和 `trustPolicyVersion`。运行中发现的新证据作为下一次 snapshot 的候选，不覆盖原始资料、判定或结果。
+
+<Equation number="M3" label={"一次运行的版本捆绑"} tex={String.raw`S_t=(v_{\mathrm{tree}},v_{\mathrm{evidence}},v_{\mathrm{decision}},v_{\mathrm{event}},v_{\mathrm{trust}})`} />
+
+在结果中，以下三个值分别存储。
+
+| 价值 | 状态 |
+| --- | --- |
+| `evaluationStatus` | `COMPLETE`, `INCOMPLETE`, `FAILED` |
+| `chainStatus` | `COMPLETE_CHAIN_FOUND`, `NO_COMPLETE_CHAIN`, `UNDETERMINED` |
+| `confidence` | 分数或区间、计算假设、阈值及是否满足阈值 |
+
+无法计算数值时，使用 `null` 并说明原因，不能用 0 或 1 填补尚未评估的部分。

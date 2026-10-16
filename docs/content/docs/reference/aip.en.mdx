@@ -1,0 +1,22 @@
+---
+title: "Legacy Foundry AIP Adapter"
+description: "Location of previous AIP modules preserved in the repository and their relationship to the current analysis path."
+---
+
+<Callout title={"Current default analysis path"}>
+Home and Server currently use ontology design, tabular data conversion, Codex document analysis, and optional Jev verdict. Foundry environment variables are not required and the old `/api/aip/status`, `/api/graphs/generate` are not currently connected to the product API.
+</Callout>
+
+## remaining modules [#남아-있는-모듈]
+
+`server/aip.ts` is the older Foundry-compatible API adapter. Pass the question/attachment body to the model, calibrate the response candidates, reconfigure source as input data, and preserve the code that verifies it with `parseGraphDocument`.
+
+`origin: "aip"` remains a valid write path for reading existing graphs. When a new file is imported, it is saved as `origin: "imported"` in the current import path.
+
+## Go to current document [#현재-문서로-이동]
+
+- [data structuring](/en/docs/algorithms/extraction): Current ontology based analysis algorithm
+- [HTTP API](/en/docs/reference/api): Current upload·job·case·ontology request
+- [local development](/en/docs/development/local): Install, log in and run
+
+Previous implementations and tests can be found in [server/aip.ts](https://github.com/d4d-cydf/Cluevia/blob/main/server/aip.ts), [server/aip.test.ts](https://github.com/d4d-cydf/Cluevia/blob/main/server/aip.test.ts).

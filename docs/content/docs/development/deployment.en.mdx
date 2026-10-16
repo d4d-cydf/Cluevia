@@ -1,0 +1,49 @@
+---
+title: "Deployment Scope"
+description: "Separate between apps that require a Node server and document sites that are statically deployed independently."
+---
+
+## Run apps and APIs [#앱과-api-실행]
+
+Install and build the root dependency in Node.js 22.17 or higher.
+
+```bash
+npm ci --include=dev
+npm run build
+npm start
+```
+
+`server/index.ts` provides the screen and product API of `dist/`. The default data directory is `.cluevia/`, which can be replaced with `CLUEVIA_DATA_DIR`. This directory is preserved even after redistribution, and multiple servers are not run simultaneously in the same path.
+
+`npm run dev` and `npm run preview` also use the same product API/repository. If only `dist/` is deployed statically, ontology design, analysis work, and server save functions will not be executed.
+
+## Connection settings [#접속-설정]
+
+The host port of `npm start` is set to `CLUEVIA_HOST` and `PORT`. For LAN operation, set `CLUEVIA_HOST=0.0.0.0` and `CLUEVIA_ACCESS_TOKEN` and enter the connection key on the web screen. The Vite port is specified separately as `npm run dev -- --port 5173 --strictPort`.
+
+Without a connection key, the API only allows actual loopback connections. The app is a shared workspace and does not provide data separation per user or permissions per role. Internet operation requires HTTPS and an authenticated access path.
+
+New analyzes require a Codex login from the execution account and access to the model. Jev is optional. Detailed variables and operating ranges are set based on project [README](https://github.com/d4d-cydf/Cluevia/blob/main/README.md).
+
+## Document static deployment [#문서-정적-배포]
+
+```bash
+npm run docs:install
+npm run docs:build
+```
+
+Deploy `docs/out/` as web root. No separate Node server, analysis API, or model credentials are required.
+
+| request | Files to provide |
+| --- | --- |
+| `/` | `docs/out/index.html` |
+| `/docs/.../` | `index.html` in that folder |
+| `/search-index.json` | Generated search index JSON |
+
+Provides a directory index instead of a SPA fallback that sends all requests to the homepage. If you overwrite the search JSON with HTML, the search will not work.
+
+App links are specified as `NEXT_PUBLIC_CLUEVIA_URL` in the build environment or `docs/.env.local`. The default is `http://127.0.0.1:5173`. Since it is a public setting, it does not contain any secret values ​​and will be rebuilt if you change the address.
+
+## data backup [#데이터-백업]
+
+Shut down the server and back up the entire data directory. The original text, DB, and analysis records must be preserved together, and copying only one DB file while using SQLite WAL should be avoided. The scope of inclusion for individual graph exports and integrated snapshots is [Save and Import](/en/docs/guide/import-export).

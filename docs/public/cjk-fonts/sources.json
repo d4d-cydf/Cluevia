@@ -1,0 +1,14 @@
+[
+  {
+    "family": "Noto Sans JP",
+    "source": "https://github.com/google/fonts/tree/main/ofl/notosansjp",
+    "cssSource": "https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400..700&display=swap",
+    "subsets": 124
+  },
+  {
+    "family": "Noto Sans SC",
+    "source": "https://github.com/google/fonts/tree/main/ofl/notosanssc",
+    "cssSource": "https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400..700&display=swap",
+    "subsets": 101
+  }
+]

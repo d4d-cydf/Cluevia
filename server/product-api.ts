@@ -13,6 +13,9 @@ import { JobManager } from './jobs.ts';
 import { buildAnalysisCase, getAnalysisRecord, getRecordDocument } from './analysis-case.ts';
 import { deleteStandaloneGraph, jobForGraph } from './case-deletion.ts';
 import { CaseChat, CaseChatError } from './case-chat.ts';
+import { WhyNotService } from './why-not-service.ts';
+import { ReportService, ReportError } from './report-service.ts';
+import { WhyNotError } from './why-not-contract.ts';
 import { clarify, ClarificationError, parseAnalysisBrief, parseClarificationInput } from './clarification.ts';
 import type { CodexRunner } from './jobs.ts';
 import type { ProductConfig } from './product-config.ts';
@@ -107,6 +110,15 @@ export async function createProductBackend(config: ProductConfig, dependencies: 
   const uploads = new EvidenceUploads(store.db);
   const jobs = new JobManager(store, config.codex, dependencies.run, uploads, config.jev || config.ontologyPlanning ? { jev: config.jev, runJev: dependencies.runJev, ontologyPlanning: config.ontologyPlanning } : undefined);
   const chat = new CaseChat(store.db, config.codex, dependencies.run);
+  const whyNot = new WhyNotService(store.db, config.codex, dependencies.run, id => jobs.get(id) ?? undefined);
+  const reports = new ReportService(store.db, config.codex, dependencies.run, id => whyNot.list(id).runs[0]);
+  jobs.onInputsReady((job, documents) => whyNot.scheduleBaseline(job, documents));
+  jobs.onStopped(job => whyNot.stopAnalysis(job));
+  jobs.onCompleted(job => whyNot.schedulePreparation(job));
+  for (const row of store.db.prepare("SELECT id FROM generation_jobs WHERE json_extract(payload,'$.status')='completed' ORDER BY created_at DESC").all()) {
+    const completed = jobs.get(String(row.id));
+    if (completed) whyNot.schedulePreparation(completed);
+  }
   const transfers = new Map<AbortController, Promise<unknown>>();
   const clarifications = new Map<AbortController, Promise<unknown>>();
   let closed = false;
@@ -118,9 +130,12 @@ export async function createProductBackend(config: ProductConfig, dependencies: 
       probePending ??= (dependencies.probe ?? probeCodex)(config.codex).then(result => { probeResult = result; probeAt = Date.now(); return result; }).finally(() => { probePending = undefined; });
       await probePending;
     }
-    if (config.ontologyPlanning) return { kind: 'hybrid' as const, ...probeResult!, ontologyPlanning: true, message: probeResult!.available && probeResult!.authenticated !== false ? 'Codex가 온톨로지를 먼저 설계합니다. 표는 규칙으로 변환하고 문서는 Codex로 추출하며, Jev는 적합한 명시적 관계 판정에만 사용합니다.' : probeResult!.message, jev: { configured: Boolean(config.jev?.apiKey), model: config.jev?.model }, codex: probeResult! };
-    if (!config.jev) return { kind: 'codex' as const, ...probeResult! };
-    return { kind: 'hybrid' as const, available: true, authenticated: true,
+    const engine = config.codex.provider === 'claude' ? 'claude' : 'codex';
+    const label = engine === 'claude' ? 'Claude' : 'Codex';
+    const metadata = { engine, model: config.codex.model };
+    if (config.ontologyPlanning) return { kind: 'hybrid' as const, ...metadata, ...probeResult!, ontologyPlanning: true, message: probeResult!.available && probeResult!.authenticated !== false ? `${label}가 온톨로지를 먼저 설계합니다. 표는 규칙으로 변환하고 문서는 ${label}로 추출하며, Jev는 적합한 명시적 관계 판정에만 사용합니다.` : probeResult!.message, jev: { configured: Boolean(config.jev?.apiKey), model: config.jev?.model }, codex: probeResult! };
+    if (!config.jev) return { kind: engine, ...metadata, ...probeResult! };
+    return { kind: 'hybrid' as const, ...metadata, available: true, authenticated: true,
       message: config.jev.apiKey ? 'Jev 키가 설정되어 있습니다. 표 데이터는 직접 변환하고 문서는 Jev로 판정합니다.' : '표 데이터는 바로 분석할 수 있습니다. 문서의 Jev 분석은 .env.local의 TYPESAFE_API_KEY를 설정해주세요.',
       jev: { configured: Boolean(config.jev.apiKey), model: config.jev.model }, codex: probeResult!,
     };
@@ -143,7 +158,7 @@ export async function createProductBackend(config: ProductConfig, dependencies: 
           if (!authenticated) {
             sendJson(response, 200, { authenticated: false, authRequired: true, provider: { kind: 'codex', available: false, authenticated: null, message: config.accessToken ? '워크스페이스 연결키를 입력해주세요.' : '외부 접속에는 서버의 CLUEVIA_ACCESS_TOKEN 설정이 필요합니다.' } }); return;
           }
-          sendJson(response, 200, { authenticated: true, authRequired: Boolean(config.accessToken), provider: await provider(), ontology: store.summary(), activeJobs: jobs.list().filter(job => ['queued', 'running'].includes(job.status)), resumableJobs: jobs.list().filter(job => job.resumable && ['failed', 'cancelled'].includes(job.status)).slice(0, 5), upload: { maxFileBytes: config.maxUploadBytes ?? 0, chunkChars: 30_000 } }); return;
+          sendJson(response, 200, { authenticated: true, authRequired: Boolean(config.accessToken), provider: await provider(), ontology: store.summary(), activeJobs: jobs.list().filter(job => ['queued', 'running'].includes(job.status)), activeReports: store.db.prepare("SELECT id, job_id AS jobId FROM case_reports WHERE json_extract(payload,'$.status')='running'").all(), resumableJobs: jobs.list().filter(job => job.resumable && ['failed', 'cancelled'].includes(job.status)).slice(0, 5), upload: { maxFileBytes: config.maxUploadBytes ?? 0, chunkChars: 30_000 } }); return;
         }
         if (!authenticated) throw new HttpError(401, config.accessToken ? '워크스페이스 연결키를 확인해주세요.' : '외부 접속에는 서버의 CLUEVIA_ACCESS_TOKEN 설정이 필요합니다.');
         if (closed) throw new HttpError(503, '서버를 종료하고 있습니다. 잠시 후 다시 시도해주세요.');
@@ -192,6 +207,12 @@ export async function createProductBackend(config: ProductConfig, dependencies: 
           sendJson(response, 202, { job: jobs.create(input) }); return;
         }
         if (url.pathname === '/api/jobs' && request.method === 'GET') { sendJson(response, 200, { jobs: jobs.list() }); return; }
+        const confidenceMatch = /^\/api\/jobs\/([^/]+)\/confidence$/.exec(url.pathname);
+        if (confidenceMatch && request.method === 'GET') {
+          const job = jobs.get(resourceId(confidenceMatch[1]));
+          if (!job) throw new HttpError(404, '케이스를 찾을 수 없습니다.');
+          sendJson(response, 200, whyNot.confidence(job)); return;
+        }
         const reviewMatch = /^\/api\/jobs\/([^/]+)\/claims\/([^/]+)\/review$/.exec(url.pathname);
         if (reviewMatch && request.method === 'POST') {
           const job = jobs.get(resourceId(reviewMatch[1]));
@@ -209,6 +230,39 @@ export async function createProductBackend(config: ProductConfig, dependencies: 
             store.db.exec('RELEASE review');
           } catch (error) { store.db.exec('ROLLBACK TO review; RELEASE review'); throw error; }
           sendJson(response, 200, { review }); return;
+        }
+        const reportMatch = /^\/api\/jobs\/([^/]+)\/reports(?:\/(cancel))?$/.exec(url.pathname);
+        if (reportMatch) {
+          const id = resourceId(reportMatch[1]);
+          const job = jobs.get(id);
+          if (!job) throw new HttpError(404, '보고서를 작성할 케이스를 찾지 못했습니다.');
+          if (request.method === 'GET' && !reportMatch[2]) { sendJson(response, 200, reports.list(job)); return; }
+          if (request.method === 'POST' && reportMatch[2] === 'cancel') { sendJson(response, 200, { report: await reports.cancel(id) }); return; }
+          if (request.method === 'POST' && !reportMatch[2]) {
+            const body = await readJson(request);
+            if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => key !== 'force') || ('force' in body && typeof body.force !== 'boolean')) throw new HttpError(400, '보고서 생성 요청 형식이 올바르지 않습니다.');
+            const report = reports.generate(job, body as { force?: boolean });
+            sendJson(response, report.status === 'running' ? 202 : 200, { report }); return;
+          }
+          throw new HttpError(405, '지원하지 않는 보고서 요청입니다.');
+        }
+        const whyMatch = /^\/api\/jobs\/([^/]+)\/why-not(?:\/(evaluate|estimate|cancel|search|layout|runs\/[^/]+))?$/.exec(url.pathname);
+        if (whyMatch) {
+          const job = jobs.get(resourceId(whyMatch[1]));
+          if (!job) throw new HttpError(404, '케이스를 찾을 수 없습니다.');
+          const action = whyMatch[2];
+          if (request.method === 'GET' && action === 'layout') { sendJson(response, 200, whyNot.layout(job.id)); return; }
+          if (request.method === 'PUT' && action === 'layout') { sendJson(response, 200, whyNot.saveLayout(job.id, await readJson(request))); return; }
+          if (request.method === 'GET' && !action) { sendJson(response, 200, whyNot.list(job.id)); return; }
+          if (request.method === 'GET' && action?.startsWith('runs/')) { sendJson(response, 200, { run: whyNot.get(job.id, resourceId(action.slice(5))) }); return; }
+          if (request.method === 'GET' && action === 'search') { sendJson(response, 200, whyNot.search(job, url.searchParams.get('q') ?? '')); return; }
+          if (request.method === 'POST' && action === 'cancel') { sendJson(response, 200, await whyNot.cancel(job.id)); return; }
+          if (request.method === 'POST' && (!action || action === 'evaluate' || action === 'estimate')) {
+            const raw = await readJson(request);
+            if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new HttpError(400, '검증 요청 형식이 올바르지 않습니다.');
+            sendJson(response, action === 'evaluate' ? 200 : 202, { run: action === 'estimate' ? whyNot.estimate(job, raw) : action === 'evaluate' ? whyNot.evaluate(job, raw) : whyNot.start(job, raw) }); return;
+          }
+          throw new HttpError(405, '지원하지 않는 검증 요청입니다.');
         }
         const caseMatch = /^\/api\/jobs\/([^/]+)\/case$/.exec(url.pathname);
         const chatMatch = /^\/api\/jobs\/([^/]+)\/chat$/.exec(url.pathname);
@@ -271,6 +325,8 @@ export async function createProductBackend(config: ProductConfig, dependencies: 
           const id = resourceId(jobMatch[1]);
           if (!jobs.get(id)) throw new HttpError(404, '삭제할 케이스를 찾을 수 없습니다.');
           await chat.remove(id);
+          await reports.remove(id);
+          await whyNot.remove(id);
           sendJson(response, 200, { deleted: true, graphIds: await jobs.remove(id) }); return;
         }
         if (jobMatch && ((jobMatch[2] && request.method === 'POST') || (!jobMatch[2] && request.method === 'GET'))) {
@@ -337,10 +393,10 @@ export async function createProductBackend(config: ProductConfig, dependencies: 
         throw new HttpError(404, '요청한 API를 찾을 수 없습니다.');
       } catch (error) {
         if (url.pathname === '/api/documents/upload' && !response.headersSent) response.setHeader('Connection', 'close');
-        const expected = error instanceof HttpError || error instanceof AipError || error instanceof EvidenceUploadError || error instanceof CaseChatError || error instanceof ClarificationError;
+        const expected = error instanceof HttpError || error instanceof AipError || error instanceof EvidenceUploadError || error instanceof CaseChatError || error instanceof ClarificationError || error instanceof WhyNotError || error instanceof ReportError;
         sendJson(response, expected ? error.status : error instanceof GraphValidationError ? 400 : 500, { error: expected || error instanceof GraphValidationError ? error.message : '요청을 처리하지 못했습니다. 서버 상태를 확인해주세요.' });
       }
     })();
   };
-  return { middleware, store, jobs, uploads, async close() { if (closed) return; closed = true; for (const controller of transfers.keys()) controller.abort(); for (const controller of clarifications.keys()) controller.abort(); await Promise.allSettled([...transfers.values(), ...clarifications.values()]); await chat.close(); await jobs.close(); store.close(); } };
+  return { middleware, store, jobs, uploads, reports, async close() { if (closed) return; closed = true; for (const controller of transfers.keys()) controller.abort(); for (const controller of clarifications.keys()) controller.abort(); await Promise.allSettled([...transfers.values(), ...clarifications.values()]); await reports.close(); await chat.close(); await whyNot.close(); await jobs.close(); store.close(); } };
 }

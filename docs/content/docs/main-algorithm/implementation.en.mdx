@@ -1,0 +1,236 @@
+---
+title: "Implementation and Acceptance Criteria"
+description: "Separation of responsibilities of the main algorithm, execution pseudocode, storage and reevaluation rules, required acceptance criteria and unconfirmed policy."
+---
+
+For a design specification to result in a viable system, the responsibilities of semantics, contract verification, state management, and numerical computation must be separated. This section links the responsibilities to the actual module and sets out the conditions necessary for reproducible execution and verification. The current data and execution path using user supplementation are implemented. External search providers, automatic collection of original text, and HTTP redirect tracking are not yet connected, and the implementation and empirical feasibility of policy proposals must be reviewed separately.
+
+## Implemented Execution Path [#구현된-실행-경로]
+
+Used when opening **Base Diagnosis** in a completed or failed case. Even for failure cases without objects, a separate gap diagnosis version can be saved while maintaining the original failure record. Analysis that is running or waiting does not start diagnosis.
+
+If no archived record search results are found, the saved original input text is used in a limited size. URL strings are not treated as the body of the linked page. Empty requirements are marked as `EVIDENCE_MISSING`, and if the actual submitted data does not prove the conditions, they are marked as `EVIDENCE_INSUFFICIENT`. Even if the other conditions of AND are empty and the entire supporting path cannot be created, the reason for lack of existing data is also left. To this end, we do not create fake evidence or supporting path, and if the scope of the investigation is incomplete, the judgment and score are kept unconfirmed.
+
+1. When you enter claim to be verified, the stored excerpt of the original text is searched, and the model suggests logic, citation judgment, event rule, and direct duplicate judgment.
+2. The server checks the textual citations and contracts and evaluates AND·OR·NOT_SUPPORT candidates, event checks, duplicate observations, source gates, and support score.
+3. source Grades, coefficients, quality scores, and thresholds are not automatically confirmed. Once you enter the review grounds and save, it will be reevaluated as a new version. If there is no basis for independence, a conservative range is used.
+4. You can search the current original text in evidence gap or open the public search link directly. User supplementation data is connected to the current logic and evaluated as a new version.
+5. Past versions and original text are preserved. The report is downloaded as Markdown, and the entire diagnosis, including logic, judgment, and score tracking, is downloaded as JSON.
+
+| actual file | responsibility |
+| --- | --- |
+| `src/types/why-not.ts` | Version snapshot, binding, witness, gap, action contract |
+| `server/why-not-contract.ts` | Input upper limit, tree reference, citation location, and event metadata inspection |
+| `server/why-not-engine.ts` | Candidate combination, eligibility, shared atom calculation, conservative bounds, evidence gap·action creation |
+| `server/why-not-service.ts` | Verification of model proposal, SQLite version storage, data supplementation, cancellation/restart recovery |
+| `src/components/WhyNotPanel.tsx` | Logical structure·evidence gap·Full text search·Review·supplementation·Version·Report screen |
+
+### API [#api]
+
+All paths follow existing workspace authentication and case scope.
+
+| Method/Path | action |
+| --- | --- |
+| `GET /api/jobs/:id/why-not` | List of latest diagnostics and most recent 50 versions |
+| `POST /api/jobs/:id/why-not` | Asynchronous creation with `{ goal, previousId }`, or data supplementation with `{ supplement: { name, text, url }, previousId }` |
+| `GET /api/jobs/:id/why-not/runs/:runId` | Search the original text and results of the preserved version |
+| `POST /api/jobs/:id/why-not/evaluate` | `{ snapshot, previousId }` Save new assessment after verifying contract |
+| `POST /api/jobs/:id/why-not/cancel` | Interruption of ongoing verification |
+| `GET /api/jobs/:id/why-not/search?q=...` | Search original case text and already added supplementation data |
+
+If `previousId` is different from the latest version, 409 is returned. Reprinting the same original text supplementation is rejected, and reviewing and saving without changes returns the existing version. Completed versions are not overwritten and are deleted together when deleting a case. When the server restarts, the diagnosis in progress is changed to failed status and the previous snapshot is preserved.
+
+### current limit [#현재-제한]
+
+- Automatic generation uses up to 10 excerpts, so they are recorded as `coverage.complete=false`. Do not assume that there is no unseen data.
+- source provenance tracking is performed within the data/citation connection registered in snapshot. Do not automatically visit external URLs.
+- Detailed modifications to genealogy, event metadata, and logic use advanced JSON review. Changes are not saved until they pass server verification.
+- source Score, threshold, and independence are user input assumptions. The output is not a calibrated truth probability.
+- The quality of the model's logical design/semantic judgment and actual service delay require separate evaluation of actual data. Model responses in automated tests use bands.
+
+## Part of the current code to reuse [#현재-코드에서-재사용할-부분]
+
+| Current implementation | Reusable Features | New features needed |
+| --- | --- | --- |
+| `server/ontology.ts` | Extraction schema, original text citation, and identification basis inspection | Determination of suitability with claim evidence binding |
+| `server/ontology-store.ts` | Save data, object, and basis location | Save tree·judgment·evidence gap·policy version |
+| `server/analysis-case.ts` | Integrate and search results and evidence for each record | Logic tree and candidate evidence tree, shared proof atom |
+| `src/types/claims.ts` | claim attitude and analyst review status of data | New EvidenceDecision Agreement |
+| `server/evidence-search.ts` | Token used to search stored original text | History of searching and securing external direct data |
+| `GraphRenderer.tsx` | Graph display of objects and relationships | AND·OR·NOT_SUPPORT, mini graph of evidence gap and confidence trace |
+
+The existing `contentHash`·`sourceFamily` is a clue to find duplicate candidates. It does not automatically promote the same source source or an independent observation to a fully verified identifier. Currently, `GraphDocument` is a display document, so it does not forcefully contain all the logic and decision contracts of Why-not Tree, but has a separate structure.
+
+## separation of responsibilities [#책임-분리]
+
+| role | LLM Responsibilities | Code Responsibilities |
+| --- | --- | --- |
+| Building a tree | Sub claim·evidence requirement·Inference connection proposal | Contract, rotation, prerequisites, version verification |
+| suitability | Read the original text and suggest enums, reasons, and citations | Reference·section·allowed enum·required reason check, support gateway |
+| event matching | Metadata and ground location extraction | Check rule with checked value; UNKNOWN Preservation |
+| duplicate | Determine whether the observation is the same in context | Hash inspection, judgment verification, representation/dependency management |
+| genealogy | Suggest citation candidates and data types | Retrieve original text, track visited URLs and budgets, and verify provenance. |
+| confidence | Description of evaluation basis | Policy value/formula/shared variable/range/threshold calculation |
+| Gap Fill | Search formula, request phrase, strategy/explanation | Run the tool, preserve results, re-evaluate and terminate |
+
+The completion of the chain or the final figure is not determined solely by the free description provided by LLM. When determining whether the same data supports another claim, the parent claim and its requirements are provided together.
+
+<ResearchDiagram kind="architecture" number="I1" />
+
+## Executable pseudocode [#실행-의사코드]
+
+Below is pseudocode explaining the control flow. Actual implementation may be evaluated delayed to avoid candidate explosion, but the meaning of each step and reasons for elimination must be maintained.
+
+```text
+function gapFind(snapshot, tree, policy):
+    validateTreeAndPolicy(tree, policy)
+    run = freezeVersions(snapshot, tree, policy)
+    diagnostics = []
+
+    candidates, completeness = buildExistingWitnesses(tree, snapshot) // 1-3
+    if candidates is empty:
+        recordMissingRequirements(diagnostics)
+        return finalize(run, candidates, completeness, diagnostics)
+
+    candidates = checkSupportPerBinding(candidates, snapshot, diagnostics) // 1-4
+    candidates = checkGlobalEventRules(candidates, policy, diagnostics)    // 1-5
+    candidates = deduplicateWithinParents(candidates, diagnostics)         // 1-6
+
+    provenance = traceSourcesWithBudgets(candidates, policy, diagnostics)  // 1-7
+    queueNewEvidenceForNextSnapshot(provenance.discoveredEvidence)
+    candidates = applySourceEligibility(candidates, provenance, diagnostics)
+
+    dependencies = buildSharedAtomGraph(tree, candidates, provenance)
+    confidence = evaluateOriginalLogic(tree, candidates, dependencies, policy)
+    recordWeakTrustWhereApplicable(confidence, diagnostics)               // 1-8
+    return finalize(run, candidates, completeness, diagnostics, confidence)
+
+function finalize(run, candidates, completeness, diagnostics, confidence=null):
+    collectPendingDecisionsAndInterruptedStages(completeness)
+    completeChains = candidates with all required eligibility gates passed
+    if completeChains is empty and completeness is COMPLETE:
+        add CHAIN_UNKNOWN referring to detailed blocking gaps
+    else if completeChains is empty:
+        chainStatus = UNDETERMINED
+    else:
+        chainStatus = COMPLETE_CHAIN_FOUND
+    return persistRunResult(run, diagnostics, chainStatus, confidence)
+
+function gapFill(result, policy):
+    actions = mergeCompatibleActions(dispatchByGapType(result.gaps))
+    executeBoundedReadActions(actions, policy)
+    requestUserEvidenceWhenNeeded(actions)
+    if inputsChanged() and roundBudgetRemains():
+        return gapFind(newSnapshot(), currentTreeVersion(), policy)
+    return currentResultWithActionStatus()
+```
+
+To finally indicate that the criteria have been met, there must be no pending reviews of evidence gap and direct counterevidence blocking ROOT. Even if the score is high, if `CONTRADICTORY_EVIDENCE` is unresolved, the status requiring review remains.
+
+If a branch is eliminated, evaluation of other OR alternatives continues. If data is currently being processed or a decision call fails, completeness is lowered, and all data is not processed as if it had been inspected and rejected. A completed chain that has already been confirmed can report its existence even if other alternatives are incomplete.
+
+## Inter-module outcome agreement [#모듈-간-결과-계약]
+
+| step result | Fields that must be left |
+| --- | --- |
+| Candidate Generation | Use by requirement binding, selected OR branch, AND request maintained without omission |
+| suitability | binding enum, reason, citation, judgment version, completion status |
+| case prosecutor | Rule ID/version, expected value/observed value, MATCH/MISMATCH/UNKNOWN |
+| duplicate check | Comparison unit parent, judgment pair, representative data, atom, basis for merging |
+| genealogy check | Visit URL/data, verified connection, LR type/value/model, exit code |
+| confidence | Expression and input for each node, shared atom, assumption, score·interval·null, threshold |
+| evidence gap | Stage/type/reasonCode, scope of influence, related candidates and cause gap |
+| supplementation | Action/search history/data request, result candidate, re-evaluation stage, reason for termination |
+
+Tasks, API, and UI share the same enum. If there is a discrepancy between the judgment value and the original text citation or there is no required reason, it is returned as a schema error and left on hold for review. Formal errors are not automatically corrected for support decisions.
+
+## Cache and Revaluation [#캐시와-재평가]
+
+The cache key does not contain only the data hash. If any of the following factors change, the results of that step are reexamined:
+
+```text
+부모 주장·requirement + 원문 구간·자료 버전
++ 사건 범위·규칙 버전 + 트리 버전
++ 판정 enum·프롬프트·모델 버전 + 출처·신뢰도 정책 버전
+```
+
+The decision for claim A is not reused as is for claim B. Since new data may change duplicate bundles or global dependencies of the same parent, it is not assumed that simply updating only the parent node of the corresponding binding is sufficient. Reassess affected duplicate group, lineage, shared atom and root calculations.
+
+Instead of deleting, create a new version and link it to the previous result. Original text, dropout tree, counterevidence, failure calls and interruption causes must be preserved to reproduce the results of the same input.
+
+<Equation number="I1" label={"Version dependency for decision reuse"} tex={String.raw`K_b=\operatorname{hash}(b,\,v_E,\,v_T,\,v_D,\,v_{\mathrm{event}},\,v_{\mathrm{trust}})`} />
+
+The above notation summarizes the conceptual dependencies of the cache. The actual key must also include the model, prompt, and schema versions that affect the decision of that module. binding of different claim are not treated identically just because their data IDs are the same.
+
+## Minimum Requirements for Results Screen [#결과-화면의-최소-요구]
+
+The screen shows the goal claim, overall evaluation status, number of completed chains or confirmed, confidence·scope/unknown, criteria, evidence gap blocking ROOT, and the next action. You must be able to open the original text, reason for decision, expectation/observation metadata, and confidence calculation trace.
+
+TRUST_WEAK minigraph is essentially a summary of the entire tree. Necessary conditions folded from the display are not excluded from the calculation. The three strategies of CHAIN_UNKNOWN are distinguished from the secured fact graph to indicate that they are plans.
+
+## Required Inspection Cases [#필수-검수-사례]
+
+| number | Input/Situation | expected results |
+| --- | --- | --- |
+| T01 | 0 evidence exists | `EVIDENCE_MISSING`, if it is a complete evaluation, `CHAIN_UNKNOWN`; score null |
+| T02 | One required requirement of AND is empty | Impossible to pass with only remaining children |
+| T03 | OR Only one alternative is secured | Available alternatives can be evaluated; missing alternatives retain local gaps. |
+| T04 | A value other than SUPPORTED | Don't pass without reason |
+| T05 | Not reviewed or LLM timeout | `INCOMPLETE`; do not conclude that no chain exists |
+| T06 | Complete claim with only scheduled records | Explaining the difference between `EVIDENCE_INSUFFICIENT` and factual strength |
+| T07 | The time zone notation is different, but the absolute time is the same. | Matchable according to rules |
+| T08 | Event height is different | `EVENT_MISMATCH`, preserve expected/observed values |
+| T09 | Incident required field is missing | UNKNOWN, insufficient metadata request; Do not make conclusions due to inconsistency |
+| T10 | Only adjacent time intervals overlap and there is no overall intersection. | SAME_EVENT Candidate eliminated |
+| T11 | Add duplicates of the same material | reducing candidate representation; No overall score increase |
+| T12 | Different parents reuse the same observation | Requirements are maintained and atoms are shared |
+| T13 | Different independent records in the same URL/document | Do not unconditionally merge document by document |
+| T14 | There are only LLM duplicate decisions: A≈B, B≈C | Prohibit transitive merging into A≈C without verification |
+| T15 | Addition of already known data LR=1 | Maintain existing data, no independent leaf addition |
+| T16 | Add `LR < 1` | counterevidence Preservation/Reevaluation; Prohibited from handling due to lack of information |
+| T17 | LR calculation not possible | null and reason; Arbitrary 1 substitution prohibited |
+| T18 | URL circulation/redirect redirection/budget exceeded | Finite exit, preserve exit code and unidentified range |
+| T19 | source D/E | `PROVENANCE_UNKNOWN`; Do not complete chain with corresponding required data |
+| T20 | source coefficient 1.0 or data is not eligible for judgment | Do not revive ineligibility with source scores |
+| T21 | Independent 0.8, 0.6 | AND=0.48, OR=0.92 |
+| T22 | `(a AND b) OR (a AND c)` of share a | In the example 0.8·0.7·0.6, 0.704 |
+| T23 | NOT_SUPPORT missing required grounds for denial | Evidence gap without changing undetected to true |
+| T24 | Logic chain is complete, only score is below standard | `TRUST_WEAK`; Automatic CHAIN_UNKNOWN No duplicate creation |
+| T25 | All candidates have been disqualified and evaluated. | `CHAIN_UNKNOWN` connected to the cause gap |
+| T26 | Candidates not yet listed remain due to budget | `UNDETERMINED`; do not conclude that no chain exists |
+| T27 | Although it is a new URL, only the same data as before is secured repeatedly. | Do not count this as new independent evidence or progress; terminate the loop. |
+| T28 | confidence interval crosses threshold | Sufficient confirmation prohibited, dependency check action |
+| T29 | Create 3 Gap Fill Strategies | Distinguish existing evidence from plans; do not invent sources that have not been obtained. |
+| T30 | Circular tree, empty claim, judgment without reason | Design/contract errors. In fact, conversion to evidence gap or success is prohibited. |
+
+This table is the acceptance criteria for the entire design. Execution verification is performed in `server/why-not-engine.test.ts`, `server/why-not-service.test.ts`, and `tests/why-not.spec.ts`. It deals with combining·evidence gap·Shared observation·Visual comparison·sourceGateway·Suspension·Version preservation·Data supplementation·Report download. External HTTP redirect validation for T18 is not currently in scope. The judgment quality, external search success rate, and large-scale operational load of the actual model are not claim verified by this test.
+
+## Recommended order of implementation [#구현-권장-순서]
+
+1. Create a tree·requirement·binding·judgment·gap contract and version storage.
+2. Complete the 1-3 set creation and AND·OR·NOT_SUPPORT propagation with a fixed fixture without a model.
+3. Add the conformance decision connection of 1-4 and the 1-5 event rule.
+4. Adds 1-6 duplicate determination, global atom sharing, and 1-7 lineage tracking.
+5. 1-8 Implements independent calculations, shared variables, unknown dependency processing, and trace.
+6. It connects the six Gap Fill actions, a minigraph, a chain strategy, and a finite revaluation loop.
+7. The judgment consistency, incorrect merging, evidence gap omission, and numerical correction between fixed cases and actual data are evaluated separately.
+
+Just because the formula in the document is correct does not mean that the accuracy of the basis judgment has been verified on actual data.
+
+## Policies still to be finalized [#아직-확정해야-할-정책]
+
+| policy | current status | draft direction |
+| --- | --- | --- |
+| NOT meaning | **Confirmed** | AND of negative proof material |
+| source A–E detailed definition | suggestion | Product grade based on level of genealogy confirmation |
+| Grade/Data Quality Values | Not confirmed | Save the basis, evaluator, and version of the figures; Prohibit arbitrary fixation of operating values |
+| coefficient 1.0 data type | Not confirmed | registry with verification conditions |
+| Root/lower threshold | Not confirmed | Case 0.80 is for illustration only; Specified in operating policy |
+| LR estimation model | Not confirmed | If numerical calculation is not possible, null, only genealogy check continues. |
+| Content judgment of no new information | suggestion | Suppresses duplicate addition by distinguishing it from numerical LR |
+| source·search·combination·calculation budget | Not confirmed | Finite value and exit code required |
+| Unknown dependency handling | suggestion | Return a conservative range or withhold the score; do not assume independence. |
+| counterevidence conflict handling | Refinement Rules | Preserves outside of support set, marks conflicts with same goals for review |
+| Meaning of chain completion | Refinement Rules | Completing eligible connections and meeting scoring criteria are managed as separate axes. |
+
+When confirming the proposed value, the policy version is raised and the impact on the existing evaluation is reexamined. The current guidelines are standards defined so that necessary input, branch, output, and failure processing can be implemented even if the values ​​are undetermined.

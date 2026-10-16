@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 import type { AnalysisCase, AnalysisRecordDetail } from '../src/types/analysis-case';
 import type { GraphDocument } from '../src/types/graph';
+import type { WhyRun } from '../src/types/why-not';
 
 /** Explicit browser fixture; server integration tests cover real identity resolution. */
 export async function mockCase(page: Page, jobId: string, graphs: () => GraphDocument[], counts: () => { total?: number; completed?: number } = () => ({})) {
@@ -24,6 +25,26 @@ export async function mockCase(page: Page, jobId: string, graphs: () => GraphDoc
     return result;
   };
   await page.route(`**/api/jobs/${jobId}/chat`, route => route.fulfill({ json: { turns: [], model: 'gpt-6.1-sol', effort: 'xhigh' } }));
+  const assessment = { runs: [] as WhyRun[] };
+  await page.route(`**/api/jobs/${jobId}/why-not`, route => {
+    if (route.request().method() === 'GET') return route.fulfill({ json: assessment });
+    const body = route.request().postDataJSON();
+    if (route.request().method() !== 'POST' || body?.auto !== true) return route.fulfill({ status: 500, json: { error: 'Unexpected assessment mutation in graph fixture' } });
+    if (value().status !== 'completed') return route.fulfill({ status: 409, json: { error: '자료 분석이 완료된 뒤 자동 근거 평가를 시작할 수 있습니다.' } });
+    // Association fixtures contain no Why-not model response. Persist one failed
+    // attempt, as the real endpoint does, without inventing proof or coefficients.
+    if (!assessment.runs.length) assessment.runs.push({ id: `fixture-why-${jobId}`, jobId, previousId: null,
+      createdAt: graphs()[0].createdAt, updatedAt: graphs()[0].createdAt, status: 'failed', stage: '검증 중단',
+      attemptKey: `fixture-attempt-${jobId}`, error: '이 테스트 자료에는 근거 평가 응답이 없습니다.' });
+    return route.fulfill({ status: 202, json: { run: assessment.runs[0] } });
+  });
+  await page.route(`**/api/jobs/${jobId}/confidence`, route => route.fulfill({ json: {
+    state: 'unassessed', confidence: null, goal: graphs()[0]?.question ?? null,
+    reason: '출처와 자료의 평가값이 없어 근거 지지 점수를 계산하지 않았습니다.',
+    unknownReasons: ['논리 구조와 근거 평가가 필요합니다.'], inputs: [],
+    policyVersion: null, assessmentVersion: null, evaluatedAt: null, assumptions: [],
+    coverageNote: '현재 자료의 관계를 표시하고 있습니다.', accepted: false,
+  } }));
   await page.route(`**/api/jobs/${jobId}/case`, route => route.fulfill({ json: value() }));
   await page.route(new RegExp(`/api/jobs/${jobId}/records/\\d+$`), route => {
     const number = Number(new URL(route.request().url()).pathname.split('/').at(-1));

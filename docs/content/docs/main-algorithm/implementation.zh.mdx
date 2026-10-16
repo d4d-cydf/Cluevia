@@ -1,0 +1,236 @@
+---
+title: "实施步骤与验收标准"
+description: "主算法的职责划分、执行伪代码、存储与重新评估规则、必要验收标准及待确认策略。"
+---
+
+将设计规范转化为可执行系统，需要区分语义判定、契约验证、状态管理与数值计算的职责。本节把职责对应到实际模块，并规定可复现执行与验证的条件。当前已实现基于存档资料及用户补充的执行路径；外部搜索提供方、自动原文采集与 HTTP 重定向追踪尚未接入。策略是否实现及是否经实证验证，应分别审查。
+
+## 实施执行路径 [#구현된-실행-경로]
+
+可在已完成或失败的案例中打开依据诊断。即使失败案例没有提取到对象，也可保留原失败记录并另存缺口诊断版本。正在运行或等待的分析不启动诊断。
+
+若保留记录的搜索没有结果，则在大小限制内使用已保存的原始输入。URL 字符串不能视为所链接页面的正文。没有资料的要求标记为 `EVIDENCE_MISSING`；已有资料无法证明该条件时，标记为 `EVIDENCE_INSUFFICIENT`。即使其他 AND 条件缺失而无法形成完整论证路径，也须保留已有资料不足的理由。不得为此生成虚假证据或论证路径；调查范围不完整时，判定与分数均保持未确定。
+
+1. 提出待检验主张后，检索已保存原文的相关片段，由模型提出逻辑结构和判定候选。
+2. 服务器验证原文引文与契约，评估 AND、OR、NOT_SUPPORT 候选、事件规则、重复观测、来源关卡及支持分数。
+3. 来源等级、系数、质量分数和阈值不自动确认为事实。填写审查依据并保存后，以新版本重新评估；缺少独立性依据时采用保守范围。
+4. 您可以在证据缺口中搜索当前原始文本或直接打开公开搜索链接。 用户补充数据与当前逻辑连接，并作为新版本进行评估。
+5. 保留旧版本与原文。报告可下载为 Markdown；包含逻辑、判定和评分轨迹的完整诊断可导出为 JSON。
+
+| 实际文件 | 责任 |
+| --- | --- |
+| `src/types/why-not.ts` | 版本快照、binding、witness、缺口与行动契约 |
+| `server/why-not-contract.ts` | 输入上限，树参考，引用位置和事件元数据检查 |
+| `server/why-not-engine.ts` | 候选组合、适合性检查、共享 atom 求值、保守边界及缺口与行动生成 |
+| `server/why-not-service.ts` | 模型提案的验证，SQLite版本存储，数据补充，取消/重新启动恢复 |
+| `src/components/WhyNotPanel.tsx` | 逻辑结构 证据缺口 完整文本搜索 审查 补充 版本 报告屏幕 |
+
+### API [#api]
+
+所有路径都遵循现有的工作空间认证和案例范围。
+
+| 方法/路径 | 行动 |
+| --- | --- |
+| `GET /api/jobs/:id/why-not` | 最新诊断和50个最新版本的列表 |
+| `POST /api/jobs/:id/why-not` | 用 `{ goal, previousId }` 同步生成，或用 `{ supplement: { name, text, url }, previousId }` 补充资料 |
+| `GET /api/jobs/:id/why-not/runs/:runId` | 搜索保存版本的原始文本和结果 |
+| `POST /api/jobs/:id/why-not/evaluate` |  `{ snapshot, previousId }` 经过合同验证后保存新的评估 |
+| `POST /api/jobs/:id/why-not/cancel` | 取消正在执行的诊断 |
+| `GET /api/jobs/:id/why-not/search?q=...` | 搜索原始案例文本和已添加的补充数据 |
+
+`previousId` 与最新版本不同则返回 409。重复提交相同原文补充会被拒绝；无变更的审查保存返回已有版本。已完成版本不被覆盖，删除案例时一并删除。服务器重启后，进行中的诊断改为失败状态，先前快照仍保留。
+
+### 当前限制 [#현재-제한]
+
+- 自动生成最多使用 10 份摘录，因此记为 `coverage.complete=false`。不能据此断定未见到的资料不存在。
+- 来源谱系仅在快照中登记的资料及引用关联内追踪，不自动访问外部 URL。
+- 谱系、事件元数据与逻辑的详细修改使用高级 JSON 审查；只有通过服务器验证后才保存。
+- 来源分数，阈值 和独立性是用户输入假设。 输出不是一个校准的真相概率。
+- 模型的逻辑设计、语义判断质量及实际服务延迟需要使用真实资料单独评估。自动化测试中的模型响应使用测试替身。
+
+## 目前代码的一部分可重复使用 [#현재-코드에서-재사용할-부분]
+
+| 目前的实施 | 可重复使用的特性 | 需要新的功能 |
+| --- | --- | --- |
+| `server/ontology.ts` | 抽取模式、原文引文与识别依据检查 | 主张—证据 binding 的适合性判定 |
+| `server/ontology-store.ts` | 保存资料、对象与依据位置 | 树、判定、缺口与策略版本存储 |
+| `server/analysis-case.ts` | 整合和搜索每个记录的结果和证据 | 逻辑树和候选证据树，共享证据原子 |
+| `src/types/claims.ts` | 资料主张立场与分析者审查状态 | 新的证据适合性枚举契约 |
+| `server/evidence-search.ts` | 已保存原文检索 | 外部直接资料搜索与获取记录 |
+| `GraphRenderer.tsx` | 对象和关系的图表显示 |  AND · OR · NOT_SUPPORT 证据缺口和信任痕迹的迷你图 |
+
+当前的 `contentHash` 与 `sourceFamily` 只是识别重复候选的线索，不自动等同于已充分验证的同源或独立观测标识。`GraphDocument` 是显示文档，不应强行承载 Why-not Tree 的全部逻辑与判定契约，而应使用独立结构。
+
+## 责任分离 [#책임-분리]
+
+| 角色 |  LLM 责任 | 代码责任 |
+| --- | --- | --- |
+| 树构建 | 提出子主张、证据要求与推理关联 | 验证契约、循环、必要条件及版本 |
+| 适合性 | 阅读原文并提出判定、理由和引文 | 核查引用位置、允许枚举及必填理由，执行支持性关卡 |
+| 事件一致性 | 抽取元数据及其原文依据 | 使用已核查值执行规则，保留 UNKNOWN |
+| 去重 | 判断是否来自同一观测 | 哈希检查、判定验证及代表资料与依赖管理 |
+| 谱系 | 提出引用候选与资料类型 | 取得原文，管理已访问 URL 与预算，并验证谱系 |
+| 可信度 | 评估基础的描述 | 计算策略值、公式、共享变量、区间与阈值 |
+| Gap Fill | 搜索公式，请求短语，战略/解释 | 运行工具，保存结果，重新评估和终止 |
+
+不能仅凭 LLM 的自由文本确定链已完成或最终数值。判断同一资料是否支持另一项主张时，应同时提供父主张及其要求。
+
+<ResearchDiagram kind="architecture" number="I1" />
+
+## 可执行的伪代码 [#실행-의사코드]
+
+下列伪代码说明控制流。实际实现可采用惰性求值避免组合爆炸，但须保留各阶段语义及排除理由。
+
+```text
+function gapFind(snapshot, tree, policy):
+    validateTreeAndPolicy(tree, policy)
+    run = freezeVersions(snapshot, tree, policy)
+    diagnostics = []
+
+    candidates, completeness = buildExistingWitnesses(tree, snapshot) // 1-3
+    if candidates is empty:
+        recordMissingRequirements(diagnostics)
+        return finalize(run, candidates, completeness, diagnostics)
+
+    candidates = checkSupportPerBinding(candidates, snapshot, diagnostics) // 1-4
+    candidates = checkGlobalEventRules(candidates, policy, diagnostics)    // 1-5
+    candidates = deduplicateWithinParents(candidates, diagnostics)         // 1-6
+
+    provenance = traceSourcesWithBudgets(candidates, policy, diagnostics)  // 1-7
+    queueNewEvidenceForNextSnapshot(provenance.discoveredEvidence)
+    candidates = applySourceEligibility(candidates, provenance, diagnostics)
+
+    dependencies = buildSharedAtomGraph(tree, candidates, provenance)
+    confidence = evaluateOriginalLogic(tree, candidates, dependencies, policy)
+    recordWeakTrustWhereApplicable(confidence, diagnostics)               // 1-8
+    return finalize(run, candidates, completeness, diagnostics, confidence)
+
+function finalize(run, candidates, completeness, diagnostics, confidence=null):
+    collectPendingDecisionsAndInterruptedStages(completeness)
+    completeChains = candidates with all required eligibility gates passed
+    if completeChains is empty and completeness is COMPLETE:
+        add CHAIN_UNKNOWN referring to detailed blocking gaps
+    else if completeChains is empty:
+        chainStatus = UNDETERMINED
+    else:
+        chainStatus = COMPLETE_CHAIN_FOUND
+    return persistRunResult(run, diagnostics, chainStatus, confidence)
+
+function gapFill(result, policy):
+    actions = mergeCompatibleActions(dispatchByGapType(result.gaps))
+    executeBoundedReadActions(actions, policy)
+    requestUserEvidenceWhenNeeded(actions)
+    if inputsChanged() and roundBudgetRemains():
+        return gapFind(newSnapshot(), currentTreeVersion(), policy)
+    return currentResultWithActionStatus()
+```
+
+最终标记为满足标准前，必须确认不存在阻断 ROOT 的缺口，也不存在尚待审查的直接反证。即使分数较高，只要 `CONTRADICTORY_EVIDENCE` 尚未解决，就应保持需要审查的状态。
+
+一个分支被排除后，仍继续评估其他 OR 替代路径。资料尚在处理或判定失败时，应降低评估完备性，不能假装所有资料都已检查并被拒绝。即使其他替代路径未完成，已经确认的完整链仍可报告其存在。
+
+## 模块间成果协议 [#모듈-간-결과-계약]
+
+| 步骤结果 | 必须留下的领域 |
+| --- | --- |
+| 候选生成 | 按 requirement 记录使用的 binding、选择的 OR 分支，并确认 AND 无必要要求遗漏 |
+| 适合性 | binding 判定、理由、引文、判定版本及完成状态 |
+| 事件检查 | 规则 ID 与版本、期望值与观测值、MATCH / MISMATCH / UNKNOWN |
+| 去重检查 | 比较单位父节点、被比较对、代表资料、atom 及合并依据 |
+| 谱系检查 | 访问过的 URL 与资料、已核实关联、LR 类型与数值及模型、终止码 |
+| 可信度 | 各节点公式与输入、共享 atom、假设、分数或区间或 null，以及阈值 |
+| 证据缺口 | 阶段/类型/原因Code,影响范围，相关候选人和因果差距 |
+| 补充 | 行动/搜索历史/数据请求，结果候选人，重新评估阶段，终止原因 |
+
+任务、API 与 UI 共用相同枚举。判定与原文引用矛盾或缺少必填理由时，按模式错误返回并暂缓审查；不能自动将格式错误修正为支持判定。
+
+## 缓存和重新评估 [#캐시와-재평가]
+
+缓存密钥不仅包含数据哈希。 如果下列任何因素发生变化，则重新审查该步骤的结果:
+
+```text
+부모 주장·requirement + 원문 구간·자료 버전
++ 사건 범위·규칙 버전 + 트리 버전
++ 판정 enum·프롬프트·모델 버전 + 출처·신뢰도 정책 버전
+```
+
+对主张 A 的判定不能直接用于主张 B。新增资料可能改变同一父节点下的去重组或全局依赖，因此不能假定只更新对应 binding 的父节点就足够。应重新评估受影响的重复组、谱系、共享 atom 与根节点计算。
+
+重新评估创建新版本并关联旧结果，不覆盖删除旧记录。为复现相同输入的结果，还须保存原文、中间树、反证、失败调用及中断原因。
+
+<Equation number="I1" label={"决策重复使用的版本依赖性"} tex={String.raw`K_b=\operatorname{hash}(b,\,v_E,\,v_T,\,v_D,\,v_{\mathrm{event}},\,v_{\mathrm{trust}})`} />
+
+上面的符号总结了缓存的概念依赖性。 实际关键还必须包括影响该模块的模型，提示和方案版本。
+
+## 对结果显示屏的最低要求 [#결과-화면의-최소-요구]
+
+界面须显示目标主张、整体评估状态、完整或已确认链的数量、可信度范围或未知状态、是否满足标准、阻断 ROOT 的缺口及下一步行动。用户应能打开原文、判定理由、期望与观测元数据及计算轨迹。
+
+TRUST_WEAK 迷你图是原完整树的摘要，显示上折叠的必要条件仍参与计算。CHAIN_UNKNOWN 的三种策略须标明为计划，与已取得的事实图区分。
+
+## 需要检查的情况 [#필수-검수-사례]
+
+| 号码 | 输入/情况 | 预期结果 |
+| --- | --- | --- |
+| T01 | 实际证据为 0 | `EVIDENCE_MISSING`；评估完整时另记 `CHAIN_UNKNOWN`；分数为 null |
+| T02 | AND 的一个必要 requirement 为空 | 不能仅凭剩余子节点通过 |
+| T03 |  OR 只有一个替代方案得到保障 | 可评估已有的替代路径；缺失的替代路径保留局部缺口。 |
+| T04 | 判定不是 SUPPORTED | 不通过，并保留理由 |
+| T05 | 尚未审查或 LLM 超时 | `INCOMPLETE`；不能断定不存在完整链 |
+| T06 | 只有计划记录，却要求证明完成 | `EVIDENCE_INSUFFICIENT`，解释事实强度差异 |
+| T07 | 时区符号不同，但绝对时间是相同的。 | 根据规则可匹配 |
+| T08 | 事件标识键不同 | `EVENT_MISMATCH`，保留期望值与观测值 |
+| T09 | 事件必要字段缺失 | UNKNOWN，不能断定实际不匹配 |
+| T10 | 仅相邻区间重叠，整体无交集 | 排除 SAME_EVENT 候选 |
+| T11 | 新增相同资料副本 | 合并为代表候选，整体分数不增加 |
+| T12 | 不同的父节点重复相同的观察 | 要求保持，原子共享。 |
+| T13 | 同一 URL 或文档中的不同独立记录 | 不按整份文档无条件合并 |
+| T14 | 仅有 LLM 相似判断 A≈B、B≈C | 未重新核查前，不按传递性合并 A≈C |
+| T15 | 已知数据的添加 LR =1 | 维护现有数据，没有独立的叶子添加 |
+| T16 | 新增 `LR < 1` | 保留反证并重新评估，不视为没有信息 |
+| T17 | 无法计算 LR | null 与理由；不得任意替换为 1 |
+| T18 | URL 循环、重定向循环或预算耗尽 | 有限终止，保留终止码与未核查范围 |
+| T19 | 来源 D/E |  `PROVENANCE_UNKNOWN` ;不要用相应的要求数据完成链。 |
+| T20 | 来源系数 1.0，但资料判定不合格 | 高来源分数不能恢复资格 |
+| T21 | 独立的0.8,0.6 | AND=0.48, OR=0.92 |
+| T22 | `(a AND b) OR (a AND c)` 共享 a | 在 0.8、0.7、0.6 的示例中得到 0.704 |
+| T23 | NOT_SUPPORT 缺少证明否定主张所需的依据 | 记录缺口，不将未发现变为真 |
+| T24 | 逻辑链完整，但分数低于标准 | `TRUST_WEAK`；不自动重复生成 CHAIN_UNKNOWN |
+| T25 | 所有候选均已排除且评估完成 | `CHAIN_UNKNOWN` 关联具体原因缺口 |
+| T26 | 目前尚未列入名单的候选人仍然由于预算 | `UNDETERMINED`：不得据此断定不存在完整链 |
+| T27 | 虽然这是一个新的 URL 只有与以前相同的数据才会多次得到保护。 | 不将其视为新的独立证据或进展，并终止循环。 |
+| T28 | 可信度区间跨越阈值 | 不确认充分性，建议核查依赖 |
+| T29 | 创建3种填补缺口的策略 | 区分实际资料与计划，不得编造尚未取得的来源。 |
+| T30 | 树成环、主张为空或判定无理由 | 设计或契约错误；不得转成事实缺口或成功 |
+
+本表规定完整设计的验收标准。实现验证位于 `server/why-not-engine.test.ts`、`server/why-not-service.test.ts` 和 `tests/why-not.spec.ts`，覆盖组合、缺口、共享观测、时间比较、来源关卡、中断、版本保留、资料补充及报告下载。T18 的外部 HTTP 重定向验证不在当前范围内。这些测试并不证明实际模型的判断质量、外部搜索成功率或大规模运行负载表现。
+
+## 建议实施顺序 [#구현-권장-순서]
+
+1. 建立树、requirement、binding、判定、缺口契约及版本存储。
+2. 用固定样例完成 1-3 候选生成及 AND、OR、NOT_SUPPORT 传播，不调用模型。
+3. 接入 1-4 适合性判定与 1-5 事件规则。
+4. 加入 1-6 去重判定、全局 atom 共享及 1-7 谱系追踪。
+5. 1-8 实现独立计算，共享变量，未知的依赖处理和追踪。
+6. 连接六类 Gap Fill 行动、迷你图、链完成策略与有限重新评估循环。
+7. 分别用固定样例与真实资料评估判定一致性、错误合并、缺口遗漏及数值校准。
+
+只是因为文件中的公式是正确的，这并不意味着根据实际数据验证了基本判决的准确性。
+
+## 尚未完成的政策 [#아직-확정해야-할-정책]
+
+| 政策 | 现状 | 方向草案 |
+| --- | --- | --- |
+| NOT 的含义 | 已确认 | 将证明否定主张的资料以 AND 组合 |
+| 来源等级 A–E 的详细定义 | 建议 | 按谱系核查程度划分产品等级 |
+| 评级/数据质量值 | 未确认 | 保存数据的基础，评估器和版本;禁止任意固定运行值 |
+| 系数1.0数据类型 | 未确认 | 具有验证条件的登记处 |
+| 根节点与子节点阈值 | 未确认 | 案例0.80仅供说明。 |
+|  LR 估计模型 | 未确认 | 如果数字计算是不可能的，null,只有谱系检查继续。 |
+| 没有新信息的内容判断 | 建议 | 通过将其与数值区分来抑制重复添加 LR  |
+| 来源探索与组合求值预算 | 未确认 | 必须规定有限上限及终止码 |
+| 目前未知的依赖性处理 | 建议 | 返回保守范围或暂不提供数值；不得假定独立。 |
+| 反证据冲突处理 | 精炼规则 | 在支持组之外保留，标记与相同目标的冲突进行审查 |
+| 链完成的含义 | 精炼规则 | 完成符合条件的连接和满足得分标准将作为独立的轴进行管理。 |
+
+在确认拟议价值时，提升政策版本，重新审查对现有评估的影响。 目前的指导方针是定义的标准，使得即使值未确定，也可以实现必要的输入，分支，输出和故障处理。

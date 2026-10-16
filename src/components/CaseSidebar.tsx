@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent, ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { apiRequest, isActiveJob } from '../services/api-client';
 import type { GenerationJob, GraphSummary } from '../services/api-client';
@@ -10,7 +11,16 @@ const preferenceKey = 'cluevia.case-sidebar.open';
 const mobileQuery = '(max-width: 899px)';
 const sidebarId = 'cluevia-case-sidebar';
 
-interface SidebarContextValue { open: boolean; toggle: (event: MouseEvent<HTMLButtonElement>) => void }
+interface CasePanelMetadata { token: symbol; caseId: string; title: string }
+interface SidebarContextValue {
+  open: boolean;
+  toggle: (event: MouseEvent<HTMLButtonElement>) => void;
+  panelHost: HTMLDivElement | null;
+  registerPanel: (token: symbol, caseId: string, title: string) => void;
+  updatePanelTitle: (token: symbol, title: string) => void;
+  unregisterPanel: (token: symbol) => void;
+  revealContent: () => void;
+}
 const SidebarContext = createContext<SidebarContextValue | null>(null);
 
 function PanelIcon({ open = false }: { open?: boolean }) {
@@ -28,6 +38,29 @@ export function CaseSidebarToggle({ className = '' }: { className?: string }) {
   return <button type="button" className={`case-sidebar-toggle ${className}`.trim()} data-case-sidebar-toggle aria-label={label} title={label} aria-controls={sidebarId} aria-expanded={context.open} onClick={context.toggle}><PanelIcon open={context.open} /></button>;
 }
 
+/** A source opened from mobile chat should reveal its record on the workbench. */
+export function useRevealCaseContent() {
+  return useContext(SidebarContext)?.revealContent;
+}
+
+/** Keep the current case's live controls in the one workspace sidebar. Switching
+ * to the archive hides the host without unmounting the conversation or its draft. */
+export function CaseSidebarPanel({ caseId, title, children }: { caseId: string; title: string; children: ReactNode }) {
+  const context = useContext(SidebarContext);
+  const token = useRef(Symbol('case-sidebar-panel')).current;
+  const register = context?.registerPanel;
+  const unregister = context?.unregisterPanel;
+  const updateTitle = context?.updatePanelTitle;
+  const titleRef = useRef(title); titleRef.current = title;
+  useEffect(() => {
+    register?.(token, caseId, titleRef.current);
+    return () => unregister?.(token);
+  }, [caseId, register, unregister, token]);
+  useEffect(() => { updateTitle?.(token, title); }, [title, updateTitle, token]);
+  if (!context) return <>{children}</>;
+  return context.panelHost ? createPortal(children, context.panelHost) : null;
+}
+
 interface CaseEntry {
   id: string;
   title: string;
@@ -40,7 +73,7 @@ interface CaseEntry {
   analysis: boolean;
 }
 
-const statusLabels: Record<GenerationJob['status'], string> = { queued: '대기 중', running: '분석 중', completed: '분석 완료', failed: '확인 필요', cancelled: '중단됨' };
+const statusLabels: Record<GenerationJob['status'], string> = { queued: 'Queued', running: 'Running', completed: 'Complete', failed: 'Needs review', cancelled: 'Paused' };
 function shortDate(value?: string): string {
   if (!value) return '';
   const date = new Date(value);
@@ -65,7 +98,7 @@ function buildEntries(graphs: GraphSummary[], jobs: GenerationJob[]): CaseEntry[
   });
   for (const graph of graphs) {
     if (covered.has(graph.id) || graph.id === GFW_CASE_ID || graph.id === '0143') continue;
-    entries.push({ id: graph.id, title: graph.title, href: `/case/${encodeURIComponent(graph.id)}/board`, date: graph.createdAt, graphIds: [graph.id], nodeCount: graph.nodeCount, edgeCount: graph.edgeCount, analysis: false });
+    entries.push({ id: graph.id, title: graph.title, href: `/case/${encodeURIComponent(graph.id)}/overview`, date: graph.createdAt, graphIds: [graph.id], nodeCount: graph.nodeCount, edgeCount: graph.edgeCount, analysis: false });
   }
   return entries.sort((left, right) => (right.date ?? '').localeCompare(left.date ?? ''));
 }
@@ -84,6 +117,13 @@ export function CaseSidebarLayout({ children }: { children: ReactNode }) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0);
+  const [mode, setMode] = useState<'cases' | 'case'>('cases');
+  const [panel, setPanel] = useState<CasePanelMetadata | null>(null);
+  const [panelHost, setPanelHost] = useState<HTMLDivElement | null>(null);
+  const panelRegistration = useRef<{ token: symbol; revision: number } | null>(null);
+  const panelRevision = useRef(0);
+  const lastCaseId = useRef<string | null>(null);
+  const mobileRef = useRef(mobile); mobileRef.current = mobile;
   const sidebarRef = useRef<HTMLElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -91,6 +131,35 @@ export function CaseSidebarLayout({ children }: { children: ReactNode }) {
   const wasOpenRef = useRef(false);
   const pathRef = useRef(location.pathname);
   const open = mobile ? mobileOpen : desktopOpen;
+
+  const registerPanel = useCallback((token: symbol, caseId: string, title: string) => {
+    panelRegistration.current = { token, revision: ++panelRevision.current };
+    setPanel(previous => previous?.token === token && previous.caseId === caseId && previous.title === title ? previous : { token, caseId, title });
+    if (lastCaseId.current !== caseId) {
+      lastCaseId.current = caseId;
+      setMode('case');
+      if (!mobileRef.current) {
+        setDesktopOpen(true);
+        try { localStorage.setItem(preferenceKey, 'true'); } catch { /* The panel still opens without storage. */ }
+      }
+    }
+  }, []);
+  const updatePanelTitle = useCallback((token: symbol, title: string) => {
+    setPanel(previous => previous?.token === token && previous.title !== title ? { ...previous, title } : previous);
+  }, []);
+  const unregisterPanel = useCallback((token: symbol) => {
+    const registration = panelRegistration.current;
+    if (registration?.token !== token) return;
+    // A pending analysis can hand its slot to the graph in the same React commit.
+    // Delay cleanup so that handoff and StrictMode never reset a user's chosen mode.
+    queueMicrotask(() => {
+      if (panelRegistration.current !== registration) return;
+      panelRegistration.current = null;
+      lastCaseId.current = null;
+      setPanel(previous => previous?.token === token ? null : previous);
+      setMode('cases');
+    });
+  }, []);
 
   const setOpen = useCallback((value: boolean) => {
     if (mobile) setMobileOpen(value);
@@ -106,6 +175,7 @@ export function CaseSidebarLayout({ children }: { children: ReactNode }) {
     });
   }, []);
   const close = useCallback(() => { setOpen(false); }, [setOpen]);
+  const revealContent = useCallback(() => { if (mobileRef.current) setMobileOpen(false); }, []);
   const toggle = useCallback((event: MouseEvent<HTMLButtonElement>) => { openerRef.current = event.currentTarget; setOpen(!open); }, [open, setOpen]);
 
   // Restore focus after React removes `inert` from the page content.
@@ -179,9 +249,12 @@ export function CaseSidebarLayout({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
+      // A modal owns keyboard navigation until it closes.
+      if (document.querySelector('dialog[open]')) return;
       if (event.key === 'Escape') { event.preventDefault(); close(); return; }
       if (event.key !== 'Tab' || !mobile) return;
-      const targets = sidebarRef.current?.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled]), [tabindex="0"]');
+      const targets = [...(sidebarRef.current?.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), details > summary:first-of-type, [contenteditable="true"], [tabindex]:not([tabindex="-1"])') ?? [])]
+        .filter(target => target.getClientRects().length > 0 && !target.closest('[inert]'));
       if (!targets?.length) return;
       const first = targets[0]; const last = targets[targets.length - 1];
       if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
@@ -224,30 +297,35 @@ export function CaseSidebarLayout({ children }: { children: ReactNode }) {
     const active = location.pathname === entry.href || !!activeGraphId && entry.graphIds.includes(activeGraphId);
     return <li key={entry.id} className="case-sidebar-entry-row"><Link to={entry.href} className={`case-sidebar-entry${active ? ' is-active' : ''}`} aria-current={active ? 'page' : undefined} title={entry.title}>
       <span className="case-sidebar-entry-icon"><FolderIcon analysis={entry.analysis} /></span>
-      <span className="case-sidebar-entry-body"><strong>{entry.title}</strong><span className="case-sidebar-entry-meta">{entry.status ? <span className={`case-sidebar-status is-${entry.status}`}><i />{statusLabels[entry.status]}</span> : <span>저장된 그래프</span>}{entry.date && <time dateTime={entry.date}>{shortDate(entry.date)}</time>}</span>
-        {(entry.nodeCount !== undefined || entry.analysis && entry.graphIds.length > 0) && <span className="case-sidebar-entry-counts">{entry.analysis ? `결과 기록 ${entry.graphIds.length}개 · 통합 그래프` : `객체 ${(entry.nodeCount ?? 0).toLocaleString()} · 관계 ${(entry.edgeCount ?? 0).toLocaleString()}`}</span>}
+      <span className="case-sidebar-entry-body"><strong>{entry.title}</strong><span className="case-sidebar-entry-meta">{entry.status ? <span className={`case-sidebar-status is-${entry.status}`}><i />{statusLabels[entry.status]}</span> : <span>Saved graph</span>}{entry.date && <time dateTime={entry.date}>{shortDate(entry.date)}</time>}</span>
+        {(entry.nodeCount !== undefined || entry.analysis && entry.graphIds.length > 0) && <span className="case-sidebar-entry-counts">{entry.analysis ? `Records ${entry.graphIds.length} · Integrated case` : `${(entry.nodeCount ?? 0).toLocaleString()} objects · ${(entry.edgeCount ?? 0).toLocaleString()} links`}</span>}
       </span>
     </Link><button type="button" className="case-sidebar-delete" disabled={!!deleting} onClick={() => void removeEntry(entry)} aria-label={`${entry.title} 영구 삭제`} title="케이스 영구 삭제">{deleting === entry.id ? '…' : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7" /></svg>}</button></li>;
   };
 
-  return <SidebarContext.Provider value={{ open, toggle }}><div ref={shellRef} className={`case-shell${open ? ' case-shell-open' : ''}`}>
+  const caseMode = mode === 'case' && Boolean(panel);
+  const modeLabel = caseMode ? '케이스 보관함으로 전환' : '현재 케이스로 전환';
+  return <SidebarContext.Provider value={{ open, toggle, panelHost, registerPanel, updatePanelTitle, unregisterPanel, revealContent }}><div ref={shellRef} className={`case-shell${open ? ' case-shell-open' : ''}`}>
     {mobile && open && <button type="button" className="case-sidebar-backdrop" aria-label="사이드바 바깥 영역 닫기" tabIndex={-1} onClick={close} />}
     <aside id={sidebarId} ref={sidebarRef} className="case-sidebar" role={mobile ? 'dialog' : 'complementary'} aria-label="케이스 사이드바" aria-modal={mobile && open ? true : undefined} aria-hidden={!open} inert={!open}>
-      <header className="case-sidebar-heading"><div><span>WORKSPACE</span><h2>케이스 보관함<span className="case-sidebar-heading-dot" /></h2></div><button type="button" className="case-sidebar-collapse" aria-label="케이스 목록 닫기" title="사이드바 접기" onClick={close}><PanelIcon open /></button></header>
-      <div className="case-sidebar-tools"><Link to="/" className="case-sidebar-new" onClick={() => { setQuery(''); if (mobile) close(); }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg><span>새 케이스</span><span aria-hidden="true">↗</span></Link>
-        <label className="case-sidebar-search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6" /><path d="m15 15 5 5" /></svg><input type="search" aria-label="케이스 검색" placeholder="케이스 검색" value={query} onChange={event => setQuery(event.target.value)} /></label>
+      <header className="case-sidebar-heading">{panel && <button type="button" className="case-sidebar-mode-toggle" aria-label={modeLabel} title={modeLabel} onClick={() => setMode(caseMode ? 'cases' : 'case')}><FolderIcon analysis={!caseMode} /></button>}<div className="case-sidebar-heading-copy"><span>{caseMode ? 'CURRENT CASE' : 'WORKSPACE'}</span><h2 aria-label={caseMode ? undefined : '케이스 보관함'} title={caseMode ? panel?.title : undefined}>{caseMode ? panel?.title || 'Current case' : <>Case library<span className="case-sidebar-heading-dot" /></>}</h2></div>{caseMode && <Link to="/new" className="case-sidebar-new-compact" aria-label="새 케이스" title="새 케이스" onClick={() => { if (mobile) close(); }}><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg></Link>}{mobile && <button type="button" className="case-sidebar-collapse" aria-label="케이스 목록 닫기" onClick={close}><span aria-hidden="true">×</span></button>}</header>
+      <div className="case-sidebar-tools" hidden={caseMode} inert={caseMode}><Link to="/new" aria-label="새 케이스" className="case-sidebar-new" onClick={() => { setQuery(''); if (mobile) close(); }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg><span>New case</span><span aria-hidden="true">↗</span></Link>
       </div>
+      <div className="case-sidebar-library" hidden={caseMode} inert={caseMode}>
+      <label className="case-sidebar-search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6" /><path d="m15 15 5 5" /></svg><input type="search" aria-label="케이스 검색" placeholder="Search cases…" value={query} onChange={event => setQuery(event.target.value)} /></label>
       <div className="case-sidebar-scroll">
-        {error && <div className="case-sidebar-error" role="status"><p>{error}</p><button type="button" onClick={() => setRefresh(value => value + 1)} disabled={loading}>다시 불러오기 <span aria-hidden="true">↻</span></button></div>}
+        {error && <div className="case-sidebar-error" role="status"><p>{error}</p><button type="button" onClick={() => setRefresh(value => value + 1)} disabled={loading}>Retry <span aria-hidden="true">↻</span></button></div>}
         {!loaded && loading ? <div className="case-sidebar-loading" role="status"><span />케이스를 불러오는 중</div> : <nav aria-label="내 케이스" aria-busy={loading}>
-          {activeEntries.length > 0 && <section className="case-sidebar-section"><h3>진행 중<span>{activeEntries.length}</span></h3><ul>{activeEntries.map(renderEntry)}</ul></section>}
-          <section className="case-sidebar-section"><h3>최근 케이스<span>{recentEntries.length}</span></h3><ul>{recentEntries.map(renderEntry)}</ul>
+          {activeEntries.length > 0 && <section className="case-sidebar-section"><h3>Active<span>{activeEntries.length}</span></h3><ul>{activeEntries.map(renderEntry)}</ul></section>}
+          <section className="case-sidebar-section"><h3>Recent<span>{recentEntries.length}</span></h3><ul>{recentEntries.map(renderEntry)}</ul>
             {filtered.length === 0 && <div className="case-sidebar-empty"><FolderIcon /><p>{query.trim() ? '검색 결과가 없습니다.' : '아직 저장된 케이스가 없습니다.'}</p><span>{query.trim() ? '다른 검색어로 찾아보세요.' : '자료를 추가하고 첫 분석을 시작하세요.'}</span></div>}
           </section>
         </nav>}
-        <section className="case-sidebar-examples"><h3>둘러보기<span>EXAMPLES</span></h3><Link to="/case/gfw-galapagos/board" aria-current={activeGraphId === GFW_CASE_ID ? 'page' : undefined}><span className="case-sidebar-example-icon">G</span><span><strong>GFW · Galápagos 2017</strong><small>공개 자료 사례</small></span><span aria-hidden="true">↗</span></Link><Link to="/case/0143/board" aria-current={activeGraphId === '0143' ? 'page' : undefined}><span className="case-sidebar-example-icon">C</span><span><strong>Original design demo</strong><small>디자인 데모</small></span><span aria-hidden="true">↗</span></Link></section>
+        <section className="case-sidebar-examples"><h3>Explore<span>EXAMPLES</span></h3><Link to="/case/gfw-galapagos/overview" aria-current={activeGraphId === GFW_CASE_ID ? 'page' : undefined}><span className="case-sidebar-example-icon">G</span><span><strong>GFW · Galápagos 2017</strong><small>Public sources</small></span><span aria-hidden="true">↗</span></Link><Link to="/case/0143/overview" aria-current={activeGraphId === '0143' ? 'page' : undefined}><span className="case-sidebar-example-icon">C</span><span><strong>Original design demo</strong><small>Design demo</small></span><span aria-hidden="true">↗</span></Link></section>
       </div>
-      <footer className="case-sidebar-footer"><Link to="/ontology" aria-current={location.pathname === '/ontology' ? 'page' : undefined}><FolderIcon analysis /><span>온톨로지</span><span aria-hidden="true">↗</span></Link><span>CLUEVIA · CONNECT THE EVIDENCE</span></footer>
+      <footer className="case-sidebar-footer"><Link to="/ontology" aria-current={location.pathname === '/ontology' ? 'page' : undefined}><FolderIcon analysis /><span>Ontology</span><span aria-hidden="true">↗</span></Link><span>CLUEVIA · CONNECT THE EVIDENCE</span></footer>
+      </div>
+      <div ref={setPanelHost} className="case-sidebar-panel" hidden={!caseMode} inert={!caseMode} />
     </aside>
     <div ref={contentRef} className="case-shell-content" inert={mobile && open}>{children}</div>
   </div></SidebarContext.Provider>;

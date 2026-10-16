@@ -1,0 +1,67 @@
+---
+title: "Troubleshooting"
+description: "Vite·Checks for document execution, analysis connections, data formats, and save and resume issues."
+---
+
+## vite command not found [#vite-명령을-찾을-수-없음]
+
+Install the dependencies in the terminal where you will run the app. When using `node_modules` for WSL in Windows PowerShell, `vite.cmd` or Windows native modules may be missing.
+
+```powershell
+npm ci --include=dev --include=optional
+npm run dev
+```
+
+The app requires Node.js **22.17 or higher**. When switching between Windows and WSL, shut down your old server and reinstall in the new environment. There is currently no automatic dependency repair step in root app commands.
+
+## Next command not found in document [#문서의-next-명령을-찾을-수-없음]
+
+Documents have separate dependencies from apps. Run from the project root.
+
+```bash
+npm run docs:install
+npm run docs:dev
+```
+
+The document address is `http://127.0.0.1:3001`. There is a dependency check step for each operating system in the docs execution/build/type check, and it is reinstalled if not installed or when the environment is changed. If it fails, check for network/permission errors in npm.
+
+## New analysis does not start [#새-분석이-시작되지-않음]
+
+Check under the same OS/user account that runs the app.
+
+```bash
+npm run codex:login
+npm run codex:status
+```
+
+On the final Scope Confirmation screen, you must click **Start Analysis with this Scope** to create the actual work. If only a question is entered, it is normal to design only ontology. Objects and relationships require supporting data.
+
+The Jev key is optional. **Jev Selection Verdict Ready** means the key is on the server and the actual permission/network/usage checks are done on call. Foundry environment variables are not required for the current analysis path.
+
+## Data read and size errors [#자료-읽기와-크기-오류]
+
+| symptoms | What to check |
+| --- | --- |
+| Original material unreadable | Check if it is UTF-8 text. First extract the contents of PDF, photo, Office, and compressed files. |
+| Upload too large | `CLUEVIA_MAX_UPLOAD_MB`, proxy limit, check server space |
+| Inline documents exceed length | API inline text is 50,000 characters per data and 150,000 characters in total. Large body uses file upload |
+| Number of data exceeded | Up to 10 inline materials and upload IDs combined |
+| Graph JSON import failed | Distinguish between general data JSON and completed GraphDocument. Import file must be less than 2MB |
+
+Raw file uploads inherently have no app size upper limit, but this does not eliminate the resource limitations of the execution environment.
+
+## Analysis failure/cancel/refresh [#분석-실패취소새로고침]
+
+Open the analytics screen again to view server activity. You can continue with **the remaining sections and then resume the uncompleted sections with Analysis**. Partial results you complete are retained.
+
+Design phase timeouts and document section timeouts are different phases. Check the failure stage in the processing history. A repeat failure checks for server errors and input formats for that step. When the task queue is full, requests are made again after existing tasks are finished.
+
+## Server connection and saved cases [#서버-연결과-저장된-케이스]
+
+If only `dist/` is hosted statically, there is no creation/saving API. After building, run the screen and API together with `npm start`. LAN connection requires `CLUEVIA_ACCESS_TOKEN` settings on the server and entering the connection key on the web screen.
+
+If you cannot find the case, check if you are connected to the same server/data directory. As an alternative to browser storage, imported graphs reside only in that browser's storage. Please refer to [Save and Import](/en/docs/guide/import-export).
+
+## No results found in Overview [#overview에서-결과를-찾지-못함]
+
+Overview selects and displays only the explicit relationships in your saved graph that directly answer your question. If there are only inferences, denials, retractions, uncertain relationships, or peripheral relationships that do not answer the question, the text shows that it was not found. For example, a mere record of two ships being close together does not indicate that they were actually transshipped. This means that an answer has not been found in the current data and does not mean that the incident did not occur. See the full record in **Board / Lanes** and check out the rationale and evidence gap in **Review**. Old Timeline addresses are moved to Overview and incident data is maintained in the exported JSON.

@@ -1,0 +1,203 @@
+---
+title: GraphDocument
+description: schemaVersion 1.0의 필드, 크기 제한, 참조 규칙과 바로 가져올 수 있는 JSON 예제.
+---
+
+`GraphDocument`는 공개 예제, 가져온 JSON, 단일 분석 결과가 공유하는 그래프 표시 계약입니다. 타입 정의는 `src/types/graph.ts`, 실행 시 검증은 `src/lib/graph-document.ts`에 있습니다.
+
+## 유효한 최소 예제
+
+아래 내용을 UTF-8 JSON 파일로 저장해 **그래프 JSON 불러오기**로 열 수 있습니다. 예제를 설명하기 위한 가상의 자료이며, 관계와 날짜 있는 사건은 없는 상태입니다.
+
+```json title="minimal.graph.json"
+{
+  "schemaVersion": "1.0",
+  "id": "research-note",
+  "title": "프로젝트 자료 정리",
+  "question": "자료에 등장하는 프로젝트는 무엇인가?",
+  "summary": "프로젝트 소개 메모에 등장하는 대상을 정리했습니다.",
+  "origin": "imported",
+  "createdAt": "2026-10-01T09:00:00+09:00",
+  "limitations": ["형식 설명용 가상 자료입니다."],
+  "groups": [
+    { "id": "projects", "label": "프로젝트", "color": "#B8321A" }
+  ],
+  "sources": [
+    {
+      "id": "note-1",
+      "title": "프로젝트 소개 메모",
+      "excerpt": "Cluevia는 자료의 객체와 관계를 살펴보는 프로젝트입니다."
+    }
+  ],
+  "nodes": [
+    {
+      "id": "cluevia",
+      "label": "Cluevia",
+      "type": "project",
+      "group": "projects",
+      "description": "메모에 소개된 프로젝트",
+      "sourceIds": ["note-1"],
+      "properties": {}
+    }
+  ],
+  "edges": [],
+  "events": [],
+  "findings": []
+}
+```
+
+## 최상위 필드
+
+아래 필드는 모두 필요합니다. 비어 있는 배열도 필드 자체는 포함하세요.
+
+| 필드 | 타입 / 제한 | 의미 |
+| --- | --- | --- |
+| `schemaVersion` | `"1.0"` | 현재 지원하는 스키마 버전 |
+| `id` | ID, 최대 80자 | 그래프 ID. 콜론 사용 불가 |
+| `title` | 문자열, 1–200자 | 케이스 제목 |
+| `question` | 문자열, 1–2,000자 | 분석 질문 |
+| `summary` | 문자열, 1–5,000자 | 요약 |
+| `origin` | `published-source`, `imported`, `aip`, `codex`, `jev`, `structured`, `demo` | 작성 경로 |
+| `createdAt` | ISO 날짜 또는 시각 | 문서 작성 시점 |
+| `limitations` | 문자열 배열, 0–20개 | 각 1–1,000자의 해석 한계 |
+| `groups` | `GraphGroup[]`, 1–12개 | 객체 분류 |
+| `sources` | `GraphSource[]`, 1–30개 | 근거 자료 |
+| `nodes` | `GraphNode[]`, 1–200개 | 객체 |
+| `edges` | `GraphEdge[]`, 0–500개 | 관계 |
+| `events` | `GraphEvent[]`, 0–300개 | 날짜 있는 사건 |
+| `findings` | `GraphFinding[]`, 0–30개 | 분석 문장 |
+
+선택 필드 `ontologyId`와 `ontologyVersion`은 함께 사용합니다. ID는 일반 ID 규칙을 따르고 버전은 1 이상의 안전 정수입니다. 위 개수 제한은 단일 그래프에 적용하며, 여러 기록을 합친 서버 케이스 투영은 별도입니다.
+
+## 그룹 · GraphGroup
+
+| 필드 | 필수 | 규칙 |
+| --- | --- | --- |
+| `id` | 예 | ID |
+| `label` | 예 | 1–100자 |
+| `color` | 예 | 정확히 6자리 16진수 `#RRGGBB` |
+
+## 출처 · GraphSource
+
+| 필드 | 필수 | 규칙 |
+| --- | --- | --- |
+| `id` | 예 | ID |
+| `title` | 예 | 1–300자 |
+| `url` | 아니요 | 최대 2,048자의 HTTP 또는 HTTPS URL, 사용자명·비밀번호 포함 불가 |
+| `publisher` | 아니요 | 1–150자 |
+| `publishedAt` | 아니요 | ISO 날짜 또는 시각 |
+| `accessedAt` | 아니요 | ISO 날짜 또는 시각 |
+| `excerpt` | 아니요 | 1–1,200자 |
+| `contentHash`, `sourceFamily` | 아니요 | 소문자 16진수 64자리 해시 |
+
+출처는 URL 없이 제목과 ID만으로도 유효합니다. URL은 `URL` 파서로 정규화되며, 브라우저가 출처를 보여 줄 때 원문 이동에 사용합니다. URL 내용 자동 수집 기능은 없습니다.
+
+## 객체 · GraphNode
+
+| 필드 | 필수 | 규칙 |
+| --- | --- | --- |
+| `id` | 예 | ID |
+| `label` | 예 | 1–180자 |
+| `type` | 예 | 1–80자. 사전에 고정된 유형 목록 없음 |
+| `group` | 예 | 존재하는 그룹 ID |
+| `description` | 예 | 0–2,000자. 빈 문자열 허용 |
+| `sourceIds` | 예 | 출처 참조, 최소 1개 |
+| `properties` | 예 | 문자열 값의 객체, 최대 25개 속성. 빈 객체 허용 |
+
+`properties`의 키는 1–100자, 값은 0–500자 문자열입니다. 숫자·불리언도 가져올 JSON에서는 문자열로 작성하세요. 키와 값의 양쪽 공백은 제거됩니다.
+
+## 관계 · GraphEdge
+
+| 필드 | 필수 | 규칙 |
+| --- | --- | --- |
+| `id` | 예 | ID |
+| `source` | 예 | 시작 객체 ID |
+| `target` | 예 | 끝 객체 ID |
+| `label` | 예 | 1–150자 |
+| `description` | 예 | 0–2,000자 |
+| `status` | 예 | `reported` 또는 `inferred` |
+| `sourceIds` | 예 | 출처 참조, 최소 1개 |
+| `highlighted` | 아니요 | 불리언. 주요 관계 강조 여부 |
+| `claim` | 아니요 | 자료에 표현된 주장 태도·주체·기간·재인용 |
+
+`source`와 `target`은 모두 존재해야 합니다. 같은 객체를 가리키는 관계와 동일한 객체 쌍의 여러 관계도 허용합니다. 각 관계의 `id`는 달라야 합니다.
+
+### 관계 주장 · RelationClaim
+
+`claim`을 사용하면 아래 키를 모두 포함합니다. `stance` 이외의 값은 모르면 `null`로 둡니다.
+
+| 필드 | 값 |
+| --- | --- |
+| `stance` | `asserted`, `denied`, `retracted`, `uncertain` |
+| `attributedTo`, `derivedFrom` | 주장 주체·재인용 출처, 각 1–500자 문자열 또는 `null` |
+| `validFrom`, `validTo`, `publishedAt` | 실제 ISO 날짜·시각 또는 `null` |
+
+유효 기간이 역전되면 거절합니다. 사용자 검토 상태인 `review`는 서버 케이스에서 덧붙이는 정보이며 이 공통 JSON 파서가 보존하는 필드는 아닙니다.
+
+## 사건 · GraphEvent
+
+| 필드 | 필수 | 규칙 |
+| --- | --- | --- |
+| `id` | 예 | ID |
+| `label` | 예 | 1–180자 |
+| `date` | 예 | ISO 날짜 또는 시각 |
+| `endDate` | 아니요 | 시작과 같거나 이후인 ISO 날짜 또는 시각 |
+| `description` | 예 | 0–2,000자 |
+| `nodeIds` | 예 | 객체 참조, 최소 1개 |
+| `sourceIds` | 예 | 출처 참조, 최소 1개 |
+
+## 분석 · GraphFinding
+
+| 필드 | 필수 | 규칙 |
+| --- | --- | --- |
+| `text` | 예 | 1–2,000자 |
+| `sourceIds` | 예 | 출처 참조, 최소 1개 |
+| `nodeIds` | 예 | 객체 참조, 빈 배열 허용 |
+| `edgeIds` | 아니요 | 관계 참조, 빈 배열 허용 |
+
+분석 항목에는 별도의 `id`가 없습니다. `nodeIds: []`여도 근거인 `sourceIds`는 필요합니다.
+
+## 공통 검증 규칙
+
+### ID와 참조
+
+ID는 최대 80자이며 영문·숫자로 시작합니다. 이후에는 영문·숫자·점·밑줄·콜론·하이픈만 허용합니다. 최상위 그래프 `id`에만 콜론을 사용할 수 없습니다.
+
+```text
+일반 ID: /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/
+그래프 ID: /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
+```
+
+각 `groups`, `sources`, `nodes`, `edges`, `events` 배열 안에서 ID는 중복될 수 없습니다. 서로 다른 종류의 배열 사이에는 전역 중복 검사를 하지 않습니다.
+
+참조 배열은 각각 최대 200개이며 같은 ID를 두 번 넣을 수 없습니다. 출처 참조는 `sources`, 객체 참조는 `nodes`, 관계 참조는 `edges`, 객체의 그룹 참조는 `groups`에 존재해야 합니다.
+
+### 문자열과 선택 필드
+
+문자열은 길이를 검사한 뒤 양쪽 공백을 제거합니다. 빈 값을 허용하지 않는 필드는 공백만 있는 값도 거절합니다. 표의 글자 수는 JavaScript 문자열의 `length` 기준이며, UTF-8 바이트 수와 다릅니다.
+
+선택 필드를 사용하지 않을 때는 생략하세요. 일반 선택 필드에서 `null`은 생략을 대신하지 않습니다. `claim` 내부의 nullable 값은 위 계약을 따릅니다. 알 수 없는 추가 필드는 검증된 결과에서 제거됩니다.
+
+### 날짜
+
+날짜만 기록하거나, 초와 시간대까지 있는 ISO 시각을 사용합니다. 시각의 소수 초는 1–3자리까지 허용합니다.
+
+```text
+2026-10-01
+2026-10-01T09:30:00+09:00
+2026-10-01T00:30:00.123Z
+```
+
+존재하지 않는 달력 날짜, 시간대가 빠진 시각, 시작보다 앞선 종료일은 거절합니다.
+
+## 파일 크기와 오류
+
+`parseGraphText`와 파일 가져오기의 크기 제한은 **2,000,000바이트**입니다. UTF-8 크기를 기준으로 하며 `parseGraphDocument`의 객체 검사와는 별도입니다. 브라우저 저장 대안도 저장할 JSON의 크기를 검사합니다.
+
+검증은 첫 오류에서 중단합니다. `node.label`, `edge 관계ID`, `events[0]`처럼 검사 위치와 종류에 따라 경로가 달라지며 모든 오류에 배열 순번과 ID가 함께 표시되는 것은 아닙니다.
+
+<Callout title="가져오기에서 바뀌는 값">
+파일의 원래 필드와 참조를 먼저 검증하고 `origin`을 `imported`로 바꾸며 저장 시 새 그래프 ID를 부여합니다. 서버 가져오기는 `ontologyId`·`ontologyVersion` 연결을 제거하고, 원래 온톨로지 정의와 검증된 객체 데이터가 포함되지 않았다는 한계를 추가합니다.
+</Callout>
+
+일반 그래프 JSON은 표시 자료이며 서버의 온톨로지·원문·분석 기록 전체를 복원하는 형식이 아닙니다. 통합 `.case.json` 스냅샷은 현재 재가져오기를 지원하지 않습니다. [저장과 가져오기](/docs/guide/import-export)를 참고하세요.

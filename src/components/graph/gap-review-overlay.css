@@ -1,0 +1,20 @@
+.gap-review-overlay { position: absolute; z-index: 16; inset: 54px 16px 16px auto; display: flex; flex-direction: column; width: min(680px, calc(100% - 32px)); min-height: 0; max-height: calc(100% - 70px); overflow: hidden; border: 1px solid #d6c8b4; border-radius: 15px; background: #fffaf4fa; color: #72583d; box-shadow: 0 14px 50px #5d412521, 0 3px 10px #5d412508; backdrop-filter: blur(18px); user-select: text; animation: gro-enter .2s cubic-bezier(.2,.75,.25,1) both; }
+.gap-review-overlay[hidden] { display: none; }
+.gro-heading { display: flex; align-items: flex-start; justify-content: space-between; flex: none; gap: 16px; padding: 18px 19px 15px 23px; border-bottom: 1px solid #e8ddcd; background: #faf4eabb; }
+.gro-heading > div { min-width: 0; }
+.gro-heading > div > span { color: #ac8e6d; font: 8px var(--mono); letter-spacing: .17em; }
+.gro-heading h2 { margin: 7px 0 0; color: #705037; font-size: 16px; line-height: 1.55; font-weight: 500; letter-spacing: -.025em; overflow-wrap: anywhere; }
+.gro-heading p { margin: 6px 0 0; color: #9d8161; font-size: 10px; line-height: 1.7; word-break: keep-all; overflow-wrap: anywhere; }
+.gro-heading > button { display: grid; place-items: center; flex: none; width: 28px; height: 28px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #a58a6b; font: 24px Georgia, serif; cursor: pointer; transition: background .15s, color .15s; }
+.gro-heading > button:hover { background: #eee2d180; color: #715034; }
+.gro-heading > button:focus-visible { outline: 2px solid #b58b69; outline-offset: 2px; }
+.gro-content { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #d7c4a9 transparent; }
+.gro-content > .wn-panel { min-height: 0; max-width: none; margin: 0; padding: 20px 23px 25px; }
+@keyframes gro-enter { from { opacity: 0; transform: translateY(7px) scale(.992); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@media (max-width: 680px) {
+  .gap-review-overlay { inset: 52px 10px 10px; width: auto; max-height: calc(100% - 62px); border-radius: 12px; }
+  .gro-heading { padding: 15px 14px 12px 17px; gap: 10px; }
+  .gro-heading h2 { font-size: 14px; }
+  .gro-content > .wn-panel { padding: 16px 16px 20px; }
+}
+@media (prefers-reduced-motion: reduce) { .gap-review-overlay { animation: none; } .gro-heading > button { transition: none; } }

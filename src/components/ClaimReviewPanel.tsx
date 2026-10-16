@@ -7,7 +7,7 @@ import { apiRequest } from '../services/api-client';
 export default function ClaimReviewPanel({ edge, jobId, onSaved }: { edge: GraphEdge; jobId?: string; onSaved?: (review: ClaimReview) => void }) {
   const [review, setReview] = useState<ClaimReview['status']>('unreviewed');
   const [note, setNote] = useState(''); const [message, setMessage] = useState(''); const [saving, setSaving] = useState(false);
-  useEffect(() => { setReview(edge.review?.status ?? 'unreviewed'); setNote(edge.review?.note ?? ''); }, [edge.id, edge.review]);
+  useEffect(() => { setReview(edge.review?.status ?? 'unreviewed'); setNote(edge.review?.note ?? ''); }, [edge.id, edge.review?.status, edge.review?.note]);
   async function save() {
     if (!jobId) return; setSaving(true); setMessage('');
     try { const result = await apiRequest<{ review: ClaimReview }>(`/api/jobs/${encodeURIComponent(jobId)}/claims/${encodeURIComponent(edge.id)}/review`, { method: 'POST', body: JSON.stringify({ status: review, note }) }); onSaved?.(result.review); setMessage('검토 기록을 저장했습니다. 이전 기록도 보존됩니다.'); }

@@ -1,0 +1,107 @@
+---
+title: "Worked Example"
+description: "A case study in which confidence and supplementation are reviewed step by step to reduce data shortages, event inconsistencies, and duplication with the virtual completion of delivery claim."
+---
+
+In this section, we trace the changes in the candidate sets, reasons evidence gap and support score, through a configuration example that verifies delivery of an order. To clarify the differences between stages, the content of the data and adequacy judgment are explicitly established. The data, scores, and thresholds below are all assumptions for explanation purposes and are not experimental results that suggest actual analysis accuracy or operating default values.
+
+<ResearchPlot kind="worked-example" number="W1" />
+
+## Goals and Logic [#목표와-논리]
+
+Objective H is “Order O-17 was delivered to warehouse W on 2026-10-05.”
+
+```text
+H [AND]
+├─ C1: 해당 인도 행위가 발생했다 [OR]
+│  ├─ E1: 입고 로그
+│  ├─ E1-copy: 같은 로그의 재게시 자료
+│  ├─ E2: 독립 수령 확인 기록 — 나중에 확보
+│  └─ E4: 다른 주문의 수령 기록
+└─ C2: 그 인도 기록이 O-17과 연결된다 [OR]
+   └─ E3: 주문–입고 번호 대조표 — 처음에는 없음
+```
+
+C1 data must also have an entry key, period, and location that can be linked to O-17. C2 confirms the direct link between the receipt key and order O-17. If they are extracted from the same document, their independence must also be checked separately. In this example, 1-4 verifies that each record supports the action of completion of delivery, and 1-5 checks that the selected record and the event key in the checklist are linked together.
+
+## Initial data and evaluation assumptions [#초기-자료와-평가-가정]
+
+| material | content | Data Judgment | incident/source |
+| --- | --- | --- | --- |
+| E1 | 10-05 Warehouse W, Receiving R-17 Completed | `SUPPORTED` in C1 | Original log, example p=0.90 |
+| E1-copy | Repost the E1 log as is | `SUPPORTED` in C1 | Same observation, not independent data |
+| E4 | Received R-71, ordered O-71 | Support for the general condition of extradition | Inconsistency with target linking rules |
+| E5 | O-17 scheduled to be delivered 10-05 | `INSUFFICIENT` in C1 | Schedule does not demonstrate actual completion |
+| E6 | Capture completion claim without source | Claim support for content | Grade E, genealogy undetermined |
+
+E5 and E6 also remain in the original data. When connected to evidence requirement of the tree, diagnosis is made at the judgment·source stage, omitted in the above simplified diagram.
+
+## Execution A · C2 data not available [#실행-a--c2-자료가-없음]
+
+Even if there is C1 candidate data in 1-3, since it is `F(C2)=∅` of C2, the root candidate is empty set.
+
+<Equation number="W1" label={"Candidates when there is no required connection"} tex={String.raw`F(C_2)=\varnothing\quad\Longrightarrow\quad F(H)=\varnothing`} />
+
+The result is `EVIDENCE_MISSING` of C2 and the root `CHAIN_UNKNOWN` that causes it. The subsequent confidence is not calculated. Do not say “false” by making the score 0.
+
+Gap Fill searches the original check list·receipt of delivery where O-17 and R-17 are displayed together. If it is an internal record that is not public, explain what fields should be included and ask the user to do so. `CHAIN_UNKNOWN` presents three strategies: the original receipt of delivery path, the log intersection path, and the independent verification path.
+
+## Add Run B·E3, check existing alternatives [#실행-b--e3-추가-기존-대안-검사]
+
+Assume that E3 specifies O-17↔R-17, location W, date 10-05 and passes the support·event·source test. Example p(E3)=0.80.
+
+| step | change |
+| --- | --- |
+| 1-3 | Generate candidates combining E3 for each C1 alternative |
+| 1-4 | Since E5 is only scheduled, it is eliminated with `EVIDENCE_INSUFFICIENT` |
+| 1-5 | E4's O-71/R-71 does not match E3's O-17/R-17 `EVENT_MISMATCH` |
+| 1-6 | E1 and E1-copy are grouped with the same observation and used as one atom a. |
+| 1-7 | E6 is grade E, so `PROVENANCE_UNKNOWN`; The alternative is ineligible |
+| 1-8 | Calculate scores for eligible candidates a AND b(E3) |
+
+Under the **example assumption** that the uncertainties of E1 and E3 are independent, we obtain the following.
+
+<Equation number="W2" label={"Action B — Connection is complete, but support is lacking"} tex={String.raw`s_B(H)=0.90\cdot0.80=0.72<\tau_{\mathrm{example}}=0.80`} />
+
+The results are `COMPLETE_CHAIN_FOUND` and `TRUST_WEAK`. The chain is complete, but there are not enough points. The gap in E4, E5, and E6 remains as a problem of eliminated alternatives, and since not all paths have disappeared, a new `CHAIN_UNKNOWN` is not added.
+
+If E1-copy is incorrectly calculated as independent data, C1=0.99, H=0.792. Even if duplication increases the number of data, confidence should not increase from 0.72.
+
+## Run C · Add independent receipt record E2 [#실행-c--독립-수령-기록-e2-추가]
+
+E2 is confirmed by independent observations and is assumed to have p(E2)=0.75. E1 and E2 are alternatives that each stand alone to support C1, and both require order chaining from E3.
+
+The candidates are `{a,b}`, `{c,b}` and the logical expression is `(a OR c) AND b`.
+
+<Equation number="W3" label={"Run C — Connection bottlenecks remaining after new observations"} tex={String.raw`\begin{aligned}s(C_1)&=1-(1-0.90)(1-0.75)=0.975\\s_C(H)&=0.975\cdot0.80=0.78\end{aligned}`} />
+
+<ResearchDiagram kind="bottleneck" number="W2" />
+
+Although the data has increased, it is still lower than 0.80. The mini-graph shows the shared bottleneck in C2. Since the two candidates share b, the scores for each candidate should not be added back to the independent OR.
+
+Gap Fill at this stage requires data to confirm the original connection of O-17↔R-17 rather than adding an article with the same content as C1.
+
+## Implementation D · E3 Verification and re-evaluation of original lineage [#실행-d--e3-원본-계보-확인과-재평가]
+
+Assume that the original record and publication path of E3 have been confirmed, and confidence of the corresponding binding has been reevaluated as 0.95. Changes in values ​​are accompanied by confirmation data/evaluation grounds and a new policy or evaluation version. It’s not about simply increasing numbers to surpass a target threshold.
+
+<Equation number="W4" label={"Execution D — Re-evaluation based on originalsource confirmation"} tex={String.raw`s_D(H)=0.975\cdot0.95=0.92625\ge\tau_{\mathrm{example}}`} />
+
+The example threshold is met in the new run where the independence assumption and data judgment are also maintained. Previous scores and TRUST_WEAK records are kept as history and the resolution status is linked to the latest run. The UI description is “Meets the criteria in the example score model” and does not write “Probability of truth 92.625%” without statistical verification.
+
+## Application to negative claims [#부정-주장에-대한-적용]
+
+claim N means “it was not canceled before the deadline.” There must be verification intervals, record completeness, subject agreement, and direct grounds for denial. If the independent scores of the two conditions supporting negative claim are 0.9 and 0.8, the AND result is 0.72.
+
+If one of the two is missing, it is evidence gap of 1-3 and is not changed to 0.28 or 1.0. Just because no cancellation data was found does not mean N has been proven.
+
+## Application to source provenance tracking [#출처-계보-추적에-대한-적용]
+
+| path | Judgment | processing |
+| --- | --- | --- |
+| Repost page → Same log already obtained | No new information | Maintain existing data, no duplicate additions |
+| Article → Original record → Original archived by publishing organization | Check original text and citations step by step | Ends when the confirmation conditions of the coefficient 1.0 type are met. |
+| A → B → A | circulation | `CYCLE_DETECTED`, preserve visit list |
+| Article → Inaccessible original text | unconfirmed | Do not arbitrarily set LR to 1; D/E side `PROVENANCE_UNKNOWN` |
+
+The key point of this example is that resolution of evidence gap is determined not by “increasing the number of data” but by **satisfaction and revalidation of the corresponding required connection**.

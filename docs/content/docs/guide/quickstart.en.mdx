@@ -1,0 +1,48 @@
+---
+title: "Quick Start"
+description: "Open an open case, check the evidence, and start a new analysis with your own data."
+---
+
+## 1. Run the app [#1-앱-실행]
+
+Use Node.js **22.17 or higher** and run from the project root. Run the app in the environment where you installed the package, either Windows PowerShell or WSL.
+
+```bash
+npm ci --include=dev
+npm run dev
+```
+
+The app address is `http://127.0.0.1:5173`. If you do not install the dependencies or use `node_modules` from a different operating system, Vite may not be found.
+
+## 2. Open a public case [#2-공개-사례-열기]
+
+Open **GFW · Galápagos 2017** in your archive or navigate to `/case/gfw-galapagos/overview`. This is a pre-built example with 12 objects, 15 relationships, 2 events, and 3 source. You can use it without model login.
+
+In **Overview**, we first look at the objects and relationships that directly answer the question. If there are no results, a message is displayed indicating that no results were found. Select all objects and relationships in **Board / Lanes** to see their description·source. This is an example based on 2017 public literature, not the current location of an actual ship.
+
+## 3. Analyze with your own data [#3-자신의-자료로-분석]
+
+For new ontology designs and document analysis, log in from the same computer/OS/user account that runs the app.
+
+```bash
+npm run codex:login
+npm run codex:status
+```
+
+1. In the home page, enter your question and UTF-8 text data.
+2. Press **START INVESTIGATION** and answer the required verification questions.
+3. Check the analysis purpose/range/desired results and press **Start analysis with this range**.
+4. Check the actual progress status and saved results at `/analysis/:jobId`.
+5. In **ONTOLOGY**, check the definitions of types, properties, relationships and the basis of stored objects.
+
+Just ask a question and we'll design ontology. To create real objects and relationships, you need supporting data. Just attach the data without any questions and use a basic request to organize the data.
+
+There is a maximum of 10 materials per job. There is no default app size limit for raw file uploads, but server, browser, and proxy resource limits do apply. For PDF, photo, and Office files, first extract the contents as UTF-8 text. We do not collect the web body through URLs alone.
+
+The Jev verdict is optional. If used, set `TYPESAFE_API_KEY` to the existing `.env.local` and restart the server. Do not overwrite any environment files that already exist. For detailed project settings, please refer to repository [README](https://github.com/d4d-cydf/Cluevia/blob/main/README.md).
+
+## 4. Reopen and Backup [#4-다시-열기와-백업]
+
+Reopen results saved on the same server from the Case sidebar. If the task fails or is canceled, use **remaining section and then continue analysis**. A record of completion will be maintained.
+
+Individual graph JSON and integrated case exports have different formats. Check the backup/movement range in [Save and Import](/en/docs/guide/import-export).

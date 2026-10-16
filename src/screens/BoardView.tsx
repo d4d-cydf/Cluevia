@@ -48,20 +48,6 @@ function linkPath(link: CaseLink, layout: GraphLayout, lanes: boolean) {
   return `${start}C${controlX} ${ay} ${controlX} ${by} ${bx} ${by}`;
 }
 
-function GraphLegend() {
-  return (
-    <div className="graph-legend" role="group" aria-label="Graph legend">
-      <span><i className="graph-group-dot" style={{ background: COLORS.domain }} />Domain</span>
-      <span><i className="graph-edge-swatch" />Observed</span>
-      <span><i className="graph-group-dot" style={{ background: COLORS.infra }} />Infrastructure</span>
-      <span><i className="graph-edge-swatch graph-edge-swatch--inferred" />Inferred</span>
-      <span><i className="graph-group-dot" style={{ background: COLORS.artifact }} />Artifact</span>
-      <span><i className="graph-edge-swatch graph-edge-swatch--answer" />Answer path</span>
-      <span><i className="graph-group-dot" style={{ background: COLORS.money }} />Money</span>
-    </div>
-  );
-}
-
 export function GraphCanvas({
   objects,
   links,
@@ -173,7 +159,6 @@ export function GraphCanvas({
           );
         })}
         </div>
-        <GraphLegend />
       </section>
     </div>
   );

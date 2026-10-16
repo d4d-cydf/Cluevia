@@ -1,0 +1,12 @@
+{
+  "title": "메인 알고리즘 지침서",
+  "pages": [
+    "overview",
+    "model",
+    "gap-find",
+    "confidence",
+    "gap-fill",
+    "worked-example",
+    "implementation"
+  ]
+}

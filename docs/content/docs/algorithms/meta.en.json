@@ -1,0 +1,12 @@
+{
+  "title": "Implemented Algorithms",
+  "pages": [
+    "current-pipeline",
+    "extraction",
+    "validation",
+    "board-layout",
+    "edge-routing",
+    "timeline",
+    "exploration"
+  ]
+}

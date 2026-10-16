@@ -46,6 +46,7 @@ export interface GenerationJob {
   ontologyVersion?: number;
   ontologyName?: string;
   schemaOnly?: boolean;
+  urlReads?: { documentId: string; url: string; status: 'fetched' | 'failed'; finalUrl?: string; title?: string; characters?: number; truncated?: boolean; reason?: string }[];
   graphId?: string;
   graphIds?: string[];
   completedChunks?: number;
@@ -59,6 +60,7 @@ export interface GenerationJob {
   firstGraphMs?: number; elapsedMs?: number; startedAt?: string;
   metrics?: {
     scopeSkippedParts?: number; codexRunMs?: number; codexQueueMs?: number; preparationMs?: number; jevRoutingMs?: number; designMs?: number; designTimeoutRetries?: number; validationRetries?: number; timeoutSplits?: number;
+    ontologyProfileMs?: number; ontologyModelMs?: number; ontologyValidationMs?: number; ontologyRulesMs?: number; ontologyCacheHits?: number;
     structuredRecords: number;
     deterministicParts: number;
     jevRequests: number;
@@ -95,7 +97,9 @@ export interface SystemStatus {
   authenticated: boolean;
   authRequired: boolean;
   provider?: {
-    kind: 'hybrid' | 'codex';
+    kind: 'hybrid' | 'codex' | 'claude';
+    engine?: 'claude' | 'codex';
+    model?: string;
     ontologyPlanning?: boolean;
     available: boolean;
     authenticated: boolean | null;

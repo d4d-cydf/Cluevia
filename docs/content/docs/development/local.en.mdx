@@ -1,0 +1,69 @@
+---
+title: "Local Development"
+description: "Install and run the app and document separately and perform related type checking, build, and browser testing."
+---
+
+The app is a Vite·Node API, and the documentation is a separate Fumadocs·Next.js package. We use Node.js **22.17 or higher** for app development. The minimum version when running only the documentation package is 22.12.
+
+## Install and run the app [#앱-설치와-실행]
+
+Install either Windows PowerShell or WSL in an environment to run.
+
+```bash
+npm ci --include=dev --include=optional
+npm run dev
+```
+
+The app default address is `http://127.0.0.1:5173`. If you change environments, shut down the existing server and run `npm ci` again in that environment. Currently the app does not have an automatic reinstall predev hook.
+
+If you use a new analysis, run `npm run codex:login` and `npm run codex:status` in the same environment. Saved graphs and public examples can be opened without a model connection. Environment variables refer to the roots `.env.example` and [README](https://github.com/d4d-cydf/Cluevia/blob/main/README.md), and do not overwrite the existing `.env.local`.
+
+## Run document [#문서-실행]
+
+Run it in a separate terminal in the project root.
+
+```bash
+npm run docs:install
+npm run docs:dev
+```
+
+The document address is `http://127.0.0.1:3001`. The main text is edited in `docs/content/docs/**/*.mdx`, the sidebar order is edited in `meta.json`, and the landing is edited in `docs/components/home.tsx`.
+
+Document execution/build/type checking first checks the necessary executable files and native modules of the current operating system. If it detects non-installation or Windows/WSL conversion, it will reinstall docs dependencies. No reinstallation under normal conditions.
+
+```bash
+npm run docs:typecheck
+npm run docs:build
+npm run test:docs
+```
+
+`docs:build` creates a static site on `docs/out/`. Run without model login or API key. `NEXT_PUBLIC_CLUEVIA_URL` is the app link in the document and is a visibility setting that is reflected when building.
+
+## App build and server [#앱-빌드와-서버]
+
+```bash
+npm run build
+npm start
+```
+
+The build generates `dist/` after TypeScript checking. `npm start` provides built-in screens and APIs. `npm run preview` runs the same product API as Vite Preview. Do not open the same data directory on multiple servers simultaneously.
+
+## test [#테스트]
+
+```bash
+npm test
+npx playwright install chromium
+npm run test:e2e
+```
+
+Unit/HTTP tests examine contracts, textual justification, save, action/cancel/resume, and APIs. Separate evaluation commands that require actual model calls are separated from regular tests.
+
+| environment variables | Use |
+| --- | --- |
+| `PLAYWRIGHT_BASE_URL` | Use an existing server for app browser testing |
+| `DOCS_BASE_URL` | Use existing servers for document testing. Static `docs/out/` server is also possible |
+| `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` | Specify a Chromium executable for testing |
+
+`test:docs` uses Playwright and `docs/playwright.config.ts` installed in the root. Basically, it starts the document development server and checks the search, document path, examples, mobile, and themes.
+
+When changing the algorithm document, match the constants, branch conditions, and implementation links with the current code. The test does not extend the cases it identifies to coverage of all inputs.

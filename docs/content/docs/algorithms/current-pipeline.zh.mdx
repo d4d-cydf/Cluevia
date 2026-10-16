@@ -1,0 +1,74 @@
+---
+title: "当前实现流程"
+description: "从分析范围确认，到本体设计、资料抽取、证据验证及图布局的实现流程。"
+---
+
+Cluevia 从资料中抽取**对象、关系、事件与来源**，并通过 Board、Lanes 和 Timeline 显示相同数据。本文将各阶段的输入输出、计算规则与局限对应到实际实现。
+
+## 整体处理流程 [#전체-처리-흐름]
+
+```text
+질문 · 자료 미리보기 → 확인 질문 → 분석 범위 확정
+                                    │
+원본 자료 업로드 ────────────────────┤
+                                    ▼
+                   온톨로지 설계 또는 기존 정의 선택
+                                    │
+                   ┌────────────────┴─────────────────┐
+                   ▼                                  ▼
+            표 데이터 컬럼 매핑                  문서 구간 분석
+            규칙으로 행 변환                  Codex · 선택적 Jev
+                   └────────────────┬─────────────────┘
+                                    ▼
+                    스키마 · 식별 키 · 원문 인용 검증
+                                    ▼
+                    SQLite 저장 → 분석 기록별 결과 통합
+                                    ▼
+                       탐색 범위 선택 → 좌표 계산
+                         Board · Lanes · Timeline
+```
+
+仅提供问题时，系统只设计对象结构，不生成实际对象或关系。导入完成的图 JSON 或打开公开示例时，仅检查图数据契约，不调用抽取模型。
+
+## 算法阅读顺序 [#알고리즘-읽는-순서]
+
+| 步骤 | 输入 →输出 | 主要问题 |
+| --- | --- | --- |
+| [1. 资料结构化](/zh/docs/algorithms/extraction) | 请求与原文 → 已验证的分析记录 | 如何区分并处理表格和文档？ |
+| [2. 数据验证](/zh/docs/algorithms/validation) | 抽取结果与 JSON → 有效图 | 原文引文核查与引用标识验证有何区别？ |
+| [3. 图布局](/zh/docs/algorithms/board-layout) | 对象与关系 → 卡片坐标 | 如何结合斥力、弹簧力与碰撞分离？ |
+| [4. 关系边与标签](/zh/docs/algorithms/edge-routing) | 卡片坐标 → 曲线与标签 | 普通边与自环的路径有何区别？ |
+| [5. 时间轴布局](/zh/docs/algorithms/timeline) | 事件时间与期间 → 坐标与轨道 | 如何排序时间并分离重叠事件？ |
+| [6. 探索与缓存](/zh/docs/algorithms/exploration) | 搜索与选择 → 显示子图 | 如何保留完整数据并限制显示数量？ |
+
+## 模型判断和代码计算 [#모델-판단과-코드-계산]
+
+| 步骤 | 负责 | 覆盖范围 |
+| --- | --- | --- |
+| 本体设计与文档分析 | 抽取类型、属性、关系与证据候选 | 由模型判定，结果可能变化 |
+| 结构化数据转换 | 按已验证的列映射转换各行 | 不对每一映射行调用模型 |
+| 抽取验证 | 检查类型、属性、标识键及精确原文引文 | 引文存在不证明主张本身为真 |
+| 图验证 | 检查字段、大小、ID、日期和引用 | 检查数据结构一致性 |
+| 探索与布局 | 计算显示集合、坐标、关系边和时间轴 | 按规则呈现已存储数据 |
+
+服务器将原文与分析记录保存在 SQLite 和数据目录中。图布局与选择状态由浏览器计算，用户拖动后的坐标保存在浏览器存储中。
+
+## 实现的链接 [#구현으로-연결하기]
+
+| 实施 | 角色 |
+| --- | --- |
+| `server/clarification.ts`, `server/ontology-planner.ts` | 确认分析范围与设计本体 |
+| `server/generic-ingest.ts`, `server/analysis-pipeline.ts` | 资料分类、映射、模型分析与缓存 |
+| `server/ontology.ts`, `src/lib/graph-document.ts` | 验证抽取依据与图数据契约 |
+| `server/ontology-store.ts`, `server/analysis-case.ts` | 存储，对象链接和案例集成 |
+| `src/lib/graph-exploration.ts` | 扩展邻域、搜索与分页选择 |
+| `src/components/graph/GraphRenderer.tsx` | 卡片、关系边与时间轴的布局及渲染 |
+
+本文依据当前应用实现编写。复杂度来自对代码循环结构的分析，不能保证模型处理耗时或所有设备上的性能。
+
+<Cards>
+  <Card title={"从资料结构化开始"} href="/docs/algorithms/extraction" description={"分析范围与本体如何约束实际抽取。"} />
+  <Card title={"从图布局开始"} href="/docs/algorithms/board-layout" description={"依次了解初始坐标、力计算与碰撞分离。"} />
+  <Card title={"通过示例核查结果"} href="/docs/guide/example" description={"无须连接模型即可查看 GFW 公开案例的三种视图。"} />
+  <Card title={"查询数据契约"} href="/docs/reference/graph-document" description={"核对图文档各字段的格式与限制。"} />
+</Cards>

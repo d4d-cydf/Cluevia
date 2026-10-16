@@ -1,0 +1,190 @@
+---
+title: "Tree Model and Data Contracts"
+description: "Why-not Tree, evidence leaf with data type, candidate evidence tree, specific agreement of data judgment and evidence gap record."
+---
+
+Representing a source as a single node does not adequately specify which condition of which claim it satisfies. An explicit model must distinguish the material itself, the claim under assessment, and the assessment of the connection between them. This section defines the storage units and reference constraints of the Why-not Tree. The types below are conceptual design contracts; the corresponding implementation contract is in `src/types/why-not.ts`. Extended material types and proposed policies are identified separately from implemented features.
+
+## Meaning of Why-not Tree [#why-not-tree의-의미]
+
+The root represents the claim to be assessed. Internal nodes represent subordinate claims and the AND, OR, or NOT_SUPPORT operations. Each terminal evidence leaf refers to a specific passage or record in material that has actually been obtained. Material not yet available remains an **evidence requirement**; it is not represented as an existing evidence leaf.
+
+<ResearchDiagram kind="tree" number="M1" />
+
+<Equation number="M1" label={"Prerequisites for forming a parent claim"} tex={String.raw`H=C_1\land C_2=(L_1\lor L_2)\land C_2`} />
+
+Here, the parent is not a leaf, but **claim or an operation node**. Even when unfolded as a tree on the screen, the storage structure can be a DAG that shares the same data reference. Circular claim dependencies are not allowed. In a separate source citation graph, cycles are discovered and recorded, and the search is terminated.
+
+## Distinction between data type and source evaluation [#자료-형태와-출처-평가의-구분]
+
+| field | role | Example |
+| --- | --- | --- |
+| `artifactKind` | Data type of leaf | `DOCUMENT`, `STRUCTURED_RECORD`, `IMAGE`, `AUDIO`, `VIDEO`, `WEB_PAGE`, `OTHER` |
+| `mimeType`, `format` | actual file format | `text/csv`, PDF, JSONL, PNG |
+| `sourceType` | Publication/creation entity and nature of data | Original work records, direct observations, re-cited articles |
+| `sourceGrade` | source rating | A/B/C/D/E or not rated |
+| `verdict` | Do you support a specific claim? | `SUPPORTED` etc. |
+
+Detailed definitions of data types enum and classes are suggestions. Currently, the original analysis of the app is centered on UTF-8 text, so even though PDF, image, voice, etc. are designed as leaf types, the extraction function has not been implemented. Before extraction, preserve the atmospheric state as `processingStatus`.
+
+## Logical nodes and evidence requirements [#논리-노드와-증거-요구]
+
+```ts
+type LogicOperator = 'AND' | 'OR' | 'NOT_SUPPORT';
+
+type LogicNode = {
+  id: string;
+  kind: 'claim' | 'requirement';
+  statement: string;
+  operator: LogicOperator;
+  children: string[]; // 논리 노드 또는 evidence binding의 ID
+  eventRuleId: string | null;
+  threshold: number | null; // null이면 별도 하위 임계값 없음
+  negativeOf: string | null; // NOT_SUPPORT가 입증할 부정 대상
+};
+
+type EvidenceNeed = {
+  requirementId: string;
+  targetClaimId: string;
+  acceptableKinds: string[];
+  requiredFields: string[];
+  acceptanceCriteria: string[];
+  eventScopeId: string;
+};
+```
+
+If the children of `claim` are empty, it is a faulty logical design. `requirement` may be empty as there is no data yet, and in this case, it is recorded as `EVIDENCE_MISSING`. Do not replace it with the weaker claim by deleting the required requirement of AND.
+
+AND·OR must explain in advance which combination of evidence is sufficient. To write “receipt of delivery OR log”, we define which child claim satisfies each independently. OR is not automatically selected because “there are two data.”
+
+## Meaning and application conditions of NOT_SUPPORT [#not_support의-의미와-적용-조건]
+
+**Definition:** NOT_SUPPORT is the AND combination of evidence establishing a negative claim.
+
+For example, to claim “not canceled before the deadline”, break it down to prove each of the necessary conditions: subject identification, total confirmation period, completeness of cancellation records, and results for that period. It is not passed simply because the cancellation item was not found in the partial log.
+
+```text
+NOT_SUPPORT(취소되었다)
+  = AND(대상 일치, 확인 구간 충족, 기록 완전성, 취소 없음의 직접 근거)
+```
+
+<ResearchDiagram kind="negative" number="M2" />
+
+<Equation number="M2" label={"Combination of conditions required for a negative claim"} tex={String.raw`\operatorname{NOT\_SUPPORT}(H)=\bigwedge_{i=1}^{n} C_i^{-}`} />
+
+Here, Cᵢ⁻ is a necessary condition specified to prove negative claim.
+
+This rule differs from the NOT operation that computes the complementary probability `1 − P(A)`. Confidence is obtained by combining the available **evidence supporting the negative claim** with AND. Missing mandatory evidence remains an evidence gap.
+
+## Evidence and Binding [#evidence와-binding]
+
+Evidence refers to the data itself, and Binding indicates which request of a specific claim the data supports. Judgments are stored as **binding units** instead of fixed properties of the entire data.
+
+<ResearchDiagram kind="binding" number="M3" />
+
+```ts
+type Evidence = {
+  id: string;
+  artifactKind: string;
+  contentHash: string;
+  sourceId: string;
+  sourceUrl: string | null;
+  capturedAt: string;
+  processingStatus: 'READY' | 'PENDING' | 'FAILED';
+};
+
+type EvidenceBinding = {
+  id: string;
+  evidenceId: string;
+  parentClaimId: string;
+  requirementId: string;
+  locator: { kind: 'text' | 'row' | 'page' | 'time'; value: string };
+  quote: string | null;
+  decisionId: string | null;
+  eventMetadataId: string | null;
+  evidenceAtomId: string | null;
+};
+```
+
+`locator` expresses text offset, row ID, page, video time, etc. In actual implementation, type-specific validation is added. One document may meet both requirements, but if both binding use the same observation, they do not count as two independent pieces of evidence in the confidence calculation.
+
+## Relationship between data judgment enum and current implementation [#자료-판정-enum과-현재-구현의-관계]
+
+The enum below is the contract for data – claim conformity determination. The rule that only **`SUPPORTED` passes the conformance gate** is a confirmation request.
+
+| value | meaning | 1-4 processing |
+| --- | --- | --- |
+| `SUPPORTED` | This section supports the corresponding sub claim by the specified standard. | passed |
+| `REFUTED` | This section presents content that runs counter to the relevant claim | Ineligible, counterevidence kept separately |
+| `INSUFFICIENT` | Relevant but unable to prove the facts requested. | Ineligible, insufficient field description |
+| `IRRELEVANT` | Not directly related to the claim/demand | Ineligibility, explanation of irrelevant reasons |
+| `UNREVIEWED` | Judgment not complete | Not yet passed, marked as incomplete |
+
+Judgment records include `bindingId`, `verdict`, `reason`, `supportingLocators`, `missingRequirements`, `evaluator`, `modelVersion`, `promptVersion`, and `createdAt`. `SUPPORTED` also requires evidence sections and reasons. Free statements without original text will not be accepted as judgment results.
+
+The current app's `reported/inferred`, `claim.stance`, and user review `supported/disputed/needs-review/unreviewed` have different meanings. For example, claim, “There is a statement of denial,” can be supported with data `claim.stance=denied`. Do not unconditionally copy the current enum to the new conformance test.
+
+counterevidence is excluded from the support set, but maintained in the diagnosis screen. If an event such as counterevidence directly conflicts with the goal, the specification rule is to leave it for review for the `CONTRADICTORY_EVIDENCE` reason of `EVIDENCE_INSUFFICIENT` instead of automatically confirming it.
+
+## Identification and equivalence of candidate sets [#후보-집합의-식별과-동등성]
+
+candidate evidence tree is originally a candidate that chose **one establishment path** in Why-not Tree. If you store only a simple set of data IDs, you will lose which requirements were met, so preserve the following.
+
+```ts
+type WitnessTree = {
+  id: string;
+  treeVersion: string;
+  chosenBranches: Record<string, string[]>;
+  bindingsByRequirement: Record<string, string[]>;
+  evidenceIds: string[];
+  eventConstraintResults: string[];
+  status: 'ACTIVE' | 'REJECTED' | 'PENDING';
+  rejectionGapIds: string[];
+};
+```
+
+Even if the set of data IDs is the same, if the requirement connection or event role is different, they will not be combined into the same candidate. Trees excluded from representative candidates are not deleted, but their status and elimination stage are recorded.
+
+## Gap record [#gap-기록]
+
+```ts
+type GapType =
+  | 'EVIDENCE_MISSING' | 'EVIDENCE_INSUFFICIENT' | 'EVENT_MISMATCH'
+  | 'TRUST_WEAK' | 'PROVENANCE_UNKNOWN' | 'CHAIN_UNKNOWN';
+
+type Gap = {
+  id: string;
+  runId: string;
+  type: GapType;
+  stage: '1-3' | '1-4' | '1-5' | '1-7' | '1-8' | 'FINAL';
+  claimId: string;
+  requirementIds: string[];
+  witnessIds: string[];
+  evidenceIds: string[];
+  reasonCode: string;
+  explanation: string;
+  expected: unknown;
+  observed: unknown;
+  blockingScope: 'ALTERNATIVE' | 'SUBCLAIM' | 'ROOT';
+  causeGapIds: string[];
+  evaluationState: 'COMPLETE' | 'PENDING';
+};
+```
+
+Instead of leaving only the reason string, store the expected and observed values together. Multiple gaps can occur at the same time, and `CHAIN_UNKNOWN` connects to `causeGapIds` without overwriting the detailed gap.
+
+## Run and Result Version [#실행과-결과-버전]
+
+One run fixes `treeVersion`, `evidenceSnapshotId`, `decisionVersion`, `eventRuleVersion`, and `trustPolicyVersion`. The new evidence found during execution is the following candidate snapshot. Do not overwrite original data, decisions, or results.
+
+<Equation number="M3" label={"Bundle of versions to pin in one run"} tex={String.raw`S_t=(v_{\mathrm{tree}},v_{\mathrm{evidence}},v_{\mathrm{decision}},v_{\mathrm{event}},v_{\mathrm{trust}})`} />
+
+The following three values are stored separately in the result.
+
+| value | status |
+| --- | --- |
+| `evaluationStatus` | `COMPLETE`, `INCOMPLETE`, `FAILED` |
+| `chainStatus` | `COMPLETE_CHAIN_FOUND`, `NO_COMPLETE_CHAIN`, `UNDETERMINED` |
+| `confidence` | Score or interval, assumptions, threshold, and whether it is met |
+
+When you cannot calculate a number, use `null` and reason. Do not fill unrated areas with 0 or 1.

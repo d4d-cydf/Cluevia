@@ -1,0 +1,12 @@
+{
+  "title": "実装済みアルゴリズム",
+  "pages": [
+    "current-pipeline",
+    "extraction",
+    "validation",
+    "board-layout",
+    "edge-routing",
+    "timeline",
+    "exploration"
+  ]
+}

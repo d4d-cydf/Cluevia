@@ -1,0 +1,12 @@
+{
+  "title": "主要アルゴリズム：仕様と方法論",
+  "pages": [
+    "overview",
+    "model",
+    "gap-find",
+    "confidence",
+    "gap-fill",
+    "worked-example",
+    "implementation"
+  ]
+}

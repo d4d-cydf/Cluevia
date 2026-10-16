@@ -29,7 +29,7 @@ test('prompt-only completion links the generated domain schema from the analysis
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   const job = { id: 'schema-job', question: '고객 주문 온톨로지를 설계해줘', status: 'running', stage: 'designing', message: '온톨로지를 설계하고 있습니다.', createdAt: '2026-10-10T00:00:00Z', updatedAt: '2026-10-10T00:00:00Z' };
-  await page.route('**/api/jobs', route => route.fulfill({ status: 202, json: { job } }));
+  await page.route('**/api/jobs', route => route.request().method() === 'GET' ? route.fulfill({ json: { jobs: [job] } }) : route.fulfill({ status: 202, json: { job } }));
   await page.route('**/api/jobs/schema-job', route => route.fulfill({ json: { job: { ...job, status: 'completed', stage: 'saving', schemaOnly: true, ontologyId: definition.id, ontologyVersion: 1, ontologyName: definition.displayName, graphIds: [], message: '온톨로지를 저장했습니다.' } } }));
   await page.goto('/');
   await page.getByLabel('What do you want to find out?', { exact: true }).fill(job.question);
@@ -64,7 +64,7 @@ test('definition filters scope entity requests and new analyses require Codex ev
   await expect.poll(() => queries.some(url => url.searchParams.get('ontologyId') === definition.id && url.searchParams.get('type') === 'Customer')).toBe(true);
   await page.route('**/api/system/status', route => route.fulfill({ json: { ...status, provider: { ...status.provider, codex: { available: true, authenticated: false, message: '온톨로지 설계에는 Codex 로그인이 필요합니다.' } } } }));
   let requests = 0;
-  await page.route('**/api/jobs', route => { requests++; return route.fulfill({ status: 500, json: { error: 'Unexpected request' } }); });
+  await page.route('**/api/jobs', route => { if (route.request().method() === 'GET') return route.fulfill({ json: { jobs: [] } }); requests++; return route.fulfill({ status: 500, json: { error: 'Unexpected request' } }); });
   await page.goto('/');
   await expect(page.getByText('분석 엔진 연결 필요', { exact: true })).toBeVisible();
   await page.getByLabel('What do you want to find out?', { exact: true }).fill('주문 자료를 분석해줘');
@@ -79,7 +79,7 @@ test('source-only upload starts with a default extraction question', async ({ pa
   const job = { id: 'source-job', question: '첨부 자료의 객체와 관계를 근거에 따라 정리해줘.', status: 'running', stage: 'designing', message: '온톨로지를 설계하고 있습니다.', createdAt: '2026-10-10T00:00:00Z', updatedAt: '2026-10-10T00:00:00Z' };
   let submission: unknown;
   await page.route('**/api/documents/upload', route => route.fulfill({ status: 201, json: { document: { id: 'customers-upload', name: 'customers.csv', bytes: source.length, characters: source.length, chunkCount: 1, createdAt: job.createdAt } } }));
-  await page.route('**/api/jobs', route => { submission = route.request().postDataJSON(); return route.fulfill({ status: 202, json: { job } }); });
+  await page.route('**/api/jobs', route => { if (route.request().method() === 'GET') return route.fulfill({ json: { jobs: [job] } }); submission = route.request().postDataJSON(); return route.fulfill({ status: 202, json: { job } }); });
   await page.route('**/api/jobs/source-job', route => route.fulfill({ json: { job } }));
   await page.goto('/');
   await page.getByLabel('Attach files', { exact: true }).setInputFiles({ name: 'customers.csv', mimeType: 'text/csv', buffer: Buffer.from(source) });
@@ -87,5 +87,5 @@ test('source-only upload starts with a default extraction question', async ({ pa
   await expect(page.getByLabel('AI analysis activity', { exact: true })).toContainText('온톨로지 설계');
   expect(submission).toEqual({ question: job.question, documents: [], uploadIds: ['customers-upload'] });
   await expect(page).toHaveURL('/analysis/source-job');
-  await expect(page.getByLabel('AI analysis activity', { exact: true })).toContainText(job.question);
+  await expect(page.getByLabel('분석 세션 설명', { exact: true })).toContainText(job.question);
 });

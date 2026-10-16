@@ -1,0 +1,65 @@
+---
+title: "Timeline Layout"
+description: "We project the absolute time of the event onto the abscissa and select non-overlapping tracks from the rows for each object."
+---
+
+`timelineLayout` sorts events in a graph by date and calculates row, track, and period bars and ticks. If `events` is empty, no date is estimated and an empty time base is displayed.
+
+## 1. Sort to reflect time zone [#1-시간대를-반영해-정렬한다]
+
+The start and end dates are read as `Date.parse`. Sort in ascending order of start time, and ties are determined by ID `localeCompare`.
+
+```text
+2017-08-12T01:30:00+09:00
+→ 2017-08-11T16:30:00Z와 같은 좌표
+```
+
+Dates on the time axis and event cards are expressed in days in UTC. Therefore, the date in the original time zone may differ by one day, and different times on the same day may appear with the same date label.
+
+## 2. Project the time onto the abscissa [#2-시각을-가로-좌표로-투영한다]
+
+Find the minimum and maximum values of all start and end times. Let the number of events be `T`, then use:
+
+```text
+span  = max(86,400,000ms, maxTime - minTime)
+width = max(1100, min(6000, T × 125 + 500))
+x(t)  = 240 + (t - minTime) / span × (width - 490)
+```
+
+Even if the period is less than one day, calculations are based on at least one day's width. If all events are at the same time, they lie at the same x coordinate and are divided into tracks.
+
+## 3. Select rows and tracks for each related object [#3-관련-객체별-행과-트랙을-선택한다]
+
+In `nodeIds` of each event, the first object existing in the actual graph is used as the row. Even if a single event references multiple objects, place it on only one row. If the object is not found, it uses the common event line.
+
+Within a row, the following rules are applied in order of start date:
+
+```text
+track = 저장된 끝점 + 20px < 이번 사건의 x인 첫 트랙
+        없으면 새 트랙
+끝점  = max(x + 194px, 종료일의 x)
+y     = 행 시작 + 24px + 트랙 번호 × 92px
+행 높이 = max(110px, 트랙 수 × 92px + 34px)
+```
+
+For example, three events at the same time will be placed on different tracks. If the period bar is long, subsequent events may only use the same track after the bar ends. This is a greedy arrangement that picks the track that can be used first.
+
+## 4. Divide the scales evenly [#4-눈금을-균등하게-나눈다]
+
+If the minimum and maximum values are the same, there is one division. If they are different, divide the two times into equal parts by the following number.
+
+```text
+tickCount = min(7, max(2, ceil((maxTime - minTime) / 하루) + 1))
+```
+
+It is not a calendar tick algorithm that aligns with the start of the month or midnight. Date display is in UTC days, so tick labels may overlap for short intervals.
+
+## Complexity and Limitations [#복잡도와-한계]
+
+The alignment is `O(T log T)`, and the worst track search is `O(T²)` when the number of tracks in a row continues to grow. If the sum of object references in an event is `R`, the number of objects is `V`, and the number of groups is `G`, the overall upper limit including the current linear search can be seen as `O(T log T + T² + RV + T(V + G))`. The resulting storage space is `O(T)`.
+
+The time axis shows only the events specified in the graph. It does not automatically convert dates in object properties to events or estimate uncertain dates. In large cases, we place the cases currently contained in [navigation projection](/en/docs/algorithms/exploration).
+
+Implementation: [timelineLayout and dateLabel in GraphRenderer.tsx](https://github.com/d4d-cydf/Cluevia/blob/main/src/components/graph/GraphRenderer.tsx). Check input date: [graph-document.ts](https://github.com/d4d-cydf/Cluevia/blob/main/src/lib/graph-document.ts).
+
+Next step: [Search and Cache](/en/docs/algorithms/exploration).

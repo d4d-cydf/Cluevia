@@ -1,0 +1,151 @@
+---
+title: "Gap Fill: Remediation Actions"
+description: "Data search, request, explanation, and chain completion strategies and reevaluation conditions suitable for the six evidence gap types."
+---
+
+For gap diagnosis to be useful, its results must lead to specific conditions that can be confirmed in subsequent investigations. Gap Fill expresses these conditions in terms of data type, required fields, event scope, and acceptance criteria. supplementation An action is a response to a need that has not yet been met, and the performance of the action itself does not guarantee sufficient evidence. The obtained data and changed decisions are re-evaluated in the new snapshot.
+
+<ResearchDiagram kind="cycle" number="G1" />
+
+## Common Action Contract [#공통-액션-계약]
+
+```ts
+type FillAction = {
+  id: string;
+  runId: string;
+  gapIds: string[];
+  targetClaimId: string;
+  requirementIds: string[];
+  actionType: 'SEARCH_EVIDENCE' | 'REQUEST_EVIDENCE' | 'EXPLAIN_MISMATCH'
+    | 'EXPLAIN_TRUST' | 'TRACE_SOURCE' | 'REQUEST_SOURCE' | 'PROPOSE_CHAINS';
+  reason: string;
+  requiredEvidence: { kinds: string[]; fields: string[]; eventScopeId: string };
+  acceptanceCriteria: string[];
+  status: 'PROPOSED' | 'RUNNING' | 'WAITING_USER' | 'COMPLETED' | 'FAILED';
+  resultEvidenceIds: string[];
+  nextEvaluationStages: string[];
+};
+```
+
+LLM creates the search formula, description, and strategy, the tool performs the actual search and original text acquisition, and the code verifies the returned data, budget, and status. Documents that LLM states it knows about are not recorded as data actually obtained.
+
+## EVIDENCE_MISSING · Direct data search, user request when necessary [#evidence_missing--직접-자료-검색-필요-시-사용자-요청]
+
+**Input:** empty requirement, goal claim, target/event condition and allowable data type.
+
+1. Specifies which fields must be present for the requirement to be met.
+2. Create a search formula including identifier, period, location, and data type.
+3. Search for related original texts directly on the Internet and secure the actual URL and text. All support·counterevidence results are preserved.
+4. Results that match only the title and search snippet are not accepted as evidence leaf. Compare text sections, objects, and events.
+5. If it is not possible to obtain public data, record the scope of the search and the basis for the judgment and request the necessary data from the user.
+
+“No search results” does not mean “the data is not available in the world.” Reasons for not being able to secure internet are classified as `NOT_FOUND_WITHIN_BUDGET`, `PRIVATE_RECORD_REQUIRED`, and `ACCESS_UNAVAILABLE`. If you've exhausted your search budget, explain that you couldn't find anything within that range.
+
+**Example request:** “There is no data linking the O-17 to the warehouse receipt number. We need an original receipt of delivery or order-to-receipt checklist with order number and receipt number.”
+
+**Completion conditions:** data has been secured, and a candidate has been created to fill the empty requirements of 1-3. The resolution of evidence gap is decided by subsequent reevaluation of 1-4·1-5·1-7·1-8.
+
+## EVIDENCE_INSUFFICIENT · Description of insufficient support [#evidence_insufficient--부족한-지지-내용-설명]
+
+**Input:** Ineligible binding, judgment enum, original text section and acceptance criteria.
+
+Instead of using the general phrase “unreliable,” the explanation should be written in the following order: **What the data actually says → What the goal requires → The difference → Additional data needed**.
+
+**Example:** “The current email only says that delivery is scheduled for October 5. The goal is to complete the actual delivery, so this email alone is not enough. We need receipt of delivery or a receipt record to confirm the delivery time, recipient, and order number.”
+
+If it is counterevidence, it also shows what objection claim is in the original text. If it is `UNREVIEWED` or a model error, the review is completed first rather than saying that the decision has been completed based on insufficient evidence. Event metadata UNKNOWN also specifically requests missing fields.
+
+**Complete conditions:** with new material or reexamination, corresponding binding·replaced binding becomes `SUPPORTED` and passes necessary reexamination.
+
+## EVENT_MISMATCH · Connection not possible description [#event_mismatch--연결-불가-설명]
+
+**Input:** Failed event rule ID, expected metadata and observed metadata.
+
+| to display | Example |
+| --- | --- |
+| The claim I was trying to connect | O-17 delivery completed |
+| Applicable rules | Same order number + designated warehouse + delivery period |
+| conflicting items | Objective O-17, Data O-71 |
+| Corresponding original text location | receipt of delivery order number field |
+| conclusion | This receipt of delivery cannot be linked as a basis for completion of O-17 |
+
+Notifies the user that the connection is not possible and excludes the data from the current candidates. If there is other data that matches the target, it can be evaluated as a new candidate, but the number and date of the existing data will not be changed to match the target.
+
+Simple missing metadata will result in an insufficient data request rather than this action. Even if a parsing error is confirmed and corrected, the original is preserved and 1-5 is re-executed with the new metadata version.
+
+**Completion condition:**A state in which the diagnosis that the connection is currently unavailable has been accurately delivered. Completing an action does not mean proving the goal claim or closing the gap.
+
+## TRUST_WEAK · Mini graph and bottleneck explanation [#trust_weak--미니-그래프와-병목-설명]
+
+**Input:** confidence Compute trace, threshold, share source·Dependencies, missing nodes.
+
+The minigraph includes at least the path to the root, bottleneck claim, evidence used, relational operators, and score/unknown state for each node. Do not hide the other required conditions of AND, but leave them as collapsed summary nodes.
+
+```text
+인도 완료 H [AND, 0.72 / 예제 기준 0.80]
+├─ 인도 기록 C1 [0.90]
+│  └─ 창고 원본 로그 E1
+└─ 주문 연결 C2 [0.80] ← 이 연결의 근거를 강화해야 함
+   └─ 주문–입고 연결표 E3
+```
+
+**Example of explanation:** “Both delivery record and order linkage are required. In the current scoring model, 0.90×0.80=0.72. Adding articles that are reposts of the same log is not an improvement as it is not an independent basis. Original number check records are needed to verify order–receipt linkage.”
+
+<ResearchDiagram kind="bottleneck" number="G2" />
+
+Figure G2 shows execution C of [Full running example](/en/docs/main-algorithm/worked-example). Assuming that only one sub-score changes in the same AND model, we obtain the following sensitivity:
+
+<Equation number="G1" label={"Local sensitivity of fixed AND model"} tex={String.raw`\begin{aligned}s(H)&=s(C_1)s(C_2)\\\frac{\partial s(H)}{\partial s(C_1)}&=s(C_2),\qquad\frac{\partial s(H)}{\partial s(C_2)}=s(C_1)\end{aligned}`} />
+
+This is the rate of change in the formula and is not a predicted value of the effect of the actual supplementation action. If new data depend on other observations or change the logical structure, the same calculations cannot be reused.
+
+If possible, compare candidate actions in terms of “which requirement reduces which uncertainty.” In the absence of a model, the expected score increase is not displayed as a confirmed value. If the range is wide due to unknown independence, confirmation of the observation path is given priority over the number of new data.
+
+**Completion conditions:**Reassessment of new evidence, genealogy, and dependency checks confirmed that the thresholds were met. Changes that lower the threshold are recorded as a separate policy version, separate from data supplementation.
+
+## PROVENANCE_UNKNOWN · Circlesource notation or search [#provenance_unknown--원출처-표기-또는-찾기]
+
+**Input:**D/E data, confirmed genealogy, reason for termination of tracking.
+
+Describe missing items among the original text publishing agency, author, first posting address, publication date, cited page, and record identifier. If there is a citation URL, it searches for the circlesource within the limits of 1-7, and if it cannot be found online, it requests the notation of the circlesource that the user knows.
+
+**Example:** “The attached image does not contain the original report name or issuing organization. Please provide the URL of the original report, issuing organization, and the relevant page or original file.”
+
+Your rating will not be raised just because you entered a URL. Check whether the actual original text and data are the same and verify the secondary citation path. Even if you find the original source, the support decision for claim and the case match are separate.
+
+**Completion conditions:** genealogy verification and source re-evaluation results resolve the D/E problem and re-examine related candidates.
+
+## CHAIN_UNKNOWN · 3 chain completion strategies [#chain_unknown--체인-완성-전략-3개]
+
+**Input:** There are 0 completed chains up to the root, the evaluation is completed, the cause gap list, and the original logical expression.
+
+**Three** different data acquisition strategies are presented while maintaining the final goal and prerequisites. Data or connections that do not exist yet are indicated as plans and are not drawn as if they were actually discovered.
+
+| Strategy example | Types of material to look for first | expected connection | suitable situation |
+| --- | --- | --- | --- |
+| 1. Direct original recording | Signature receipt of delivery·Original transaction record·Business system ledger | Check incident results and target identifiers in one document | If the original is accessible |
+| 2. Temporal order cross-validation | Shipping/warehousing/receipt log and identifier comparison chart | Connect before and after an event while maintaining the target key | When there is no single comprehensive data |
+| 3. Combining independent observations | Records from other organizations, direct observation data, and proof of separate storage | Connect independent data on the same object or event | When existing data is concentrated in a series that has been re-cited |
+
+Each strategy includes `requiredEvidence`, `closedGapIds`, `remainingGaps`, `eventJoinRules`, `sourceIndependenceNeeds`, and `availability`. There is no guarantee that there will be three viable paths in every case. For unfeasible strategies, indicate why they are impossible and the necessary access conditions, but do not fill in the numbers by creating a fake source.
+
+If an alternative logic that was not in the original tree is proposed, it is classified as `proposedTreeRevision`, reviewed to see whether it sufficiently supports the same goal, and reflected in the new tree version. Clearing existing AND prerequisites does not make the chain complete.
+
+**Completion conditions:** Provides 3 strategies and data requests to the user. To actually resolve the gap, you must check the completion chain in a new execution after executing the strategy.
+
+## Prioritization and overlapping actions for multiple evidence gaps [#여러-공백의-우선순위와-중복-액션]
+
+The details of blocking ROOT, evidence gap, are explained first, and the unselected alternative of OR, evidence gap, is left behind. The `CHAIN_UNKNOWN` strategy refers to the detailed cause. If missing·provenance problems can be solved together with the same original text, connect multiple gap IDs to one action.
+
+Priorities are suggested, along with reasons for data accessibility, number of essential needs to be met, expected reduction in uncertainty, and cost of implementation. This is not automatically expressed as an accurate utility figure.
+
+## repetition and termination [#반복과-종료]
+
+```text
+액션 실행 → 후보 자료 등록 → 새 snapshot
+  → Gap Find 재실행 → 이전 gap과 비교
+```
+
+If the new input hash, judgment, and lineage do not change, the same request is not repeated. The supplementation loop states are managed separately, such as `WAITING_USER` when user data is needed, `PAUSED_BY_BUDGET` when the budget is reached, and `RESOLVED` when the demand is met. This does not increase the six GapTypes.
+
+Gap Fill runs finitely with `maxRounds`, search URL, time, and call budget. Inability to secure is distinguished from failure to prove, and it is not automatically terminated when evidence gap is resolved without additional data.

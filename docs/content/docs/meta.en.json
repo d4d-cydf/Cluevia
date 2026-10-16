@@ -1,0 +1,12 @@
+{
+  "title": "Cluevia Docs",
+  "pages": [
+    "index",
+    "main-algorithm",
+    "algorithms",
+    "concepts",
+    "reference",
+    "guide",
+    "development"
+  ]
+}

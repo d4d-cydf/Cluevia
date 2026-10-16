@@ -1,0 +1,69 @@
+---
+title: "算法概述"
+description: "通过分离主张·证据·推理规则来诊断证据缺陷的Cluevia技术文件。"
+---
+
+<Abstract keywords={"主张验证 ·证据要求 ·逻辑结构 ·来源追踪 ·证据缺口补充"}>
+
+检查结论需要区分数据中所记录的内容以及该记录如何支持结论。 通过 Gap Find 诊断未满足条件，然后通过 Gap Fill 呈现必要的补充数据。 这组文件汇集了算法的概念定义，执行合同和实施范围。 在解释结果时，您必须检查是否完成了支持路径，支持水平以及评估的完整性。
+
+</Abstract>
+
+## 文件的范围 [#문서의-범위]
+
+[核心算法指南](/zh/docs/main-algorithm/overview)是一份涵盖问题定义、方法、评估计划及局限的技术报告。各项详细规范明确判定规则与例外条件；当前实现文档则将契约对应到实际模块、存储结构与界面。资料缺口诊断及用户补充路径已经实现，但这不意味着自动外部采集和经实证验证的数值策略已经完成。
+
+## 主要算法 [#메인-알고리즘]
+
+```text
+목표 주장과 사건 범위
+       ↓
+Why-not Tree: 내부는 주장·AND·OR·NOT_SUPPORT, 최하위는 증거 자료
+       ↓
+1-3 현재 자료로 가능한 집합 트리 생성
+1-4 자료 판정 중 지지만 통과
+1-5 사건 메타데이터 일치 검사
+1-6 부모별 중복 자료 식별
+1-7 출처·인용 계보 추적
+1-8 leaf → 부모 → 전체 신뢰도 평가
+       ↓
+공백 사유 + 미니 그래프 + 다음 액션
+       ↓
+Gap Fill → 새 자료·판정 버전 → 재평가
+```
+
+NOT_SUPPORT 将用于证明否定命题的证据以 AND 组合。缺少必要资料或尚未完成审查，均不能解释为该否定命题已经得到证明。
+
+## 指南阅读顺序 [#지침서-읽는-순서]
+
+| 文档 | 内容范围 |
+| --- | --- |
+| [核心算法：规范与方法](/zh/docs/main-algorithm/overview) | 已确认需求、阶段衔接与证据缺口行动 |
+| [树结构模型与数据契约](/zh/docs/main-algorithm/model) | 资料类型叶节点、主张关联、枚举与结果契约 |
+| [Gap Find：分阶段评估规则](/zh/docs/main-algorithm/gap-find) | 候选集合构造、按父节点运算符淘汰、事件匹配与去重 |
+|  [来源谱系与可信度](/zh/docs/main-algorithm/confidence)  | 似然比与来源系数、循环终止、OR 与 AND 及共享证据的计算 |
+| [Gap Fill：证据补充行动](/zh/docs/main-algorithm/gap-fill) | 按缺口搜索、解释和请求资料，以及三种链完成策略 |
+|  [完整运行示例](/zh/docs/main-algorithm/worked-example)  | 从不充分的数据和重新验证开始改变分数和证据缺口的过程 |
+|  [实施步骤与验收标准](/zh/docs/main-algorithm/implementation)  | 伪代码，LLM ·代码角色，30个被接受的案例和未确认的政策 |
+
+## 六个证据缺口 [#여섯-가지-공백]
+
+| 类型 | 的意思 | 补充方向 |
+| --- | --- | --- |
+| `EVIDENCE_MISSING` | 缺失所需证据 | 直接搜索数据，如果无法获取数据，用户请求 |
+| `EVIDENCE_INSUFFICIENT` | 不足以支持主张 | 缺乏事实和条件的解释，要求提供额外证据 |
+| `EVENT_MISMATCH` | 事件连接规则不匹配 | 碰撞点和无法连接的描述 |
+| `TRUST_WEAK` | 整体可信度未达到标准，或因未知值无法确认是否充分 | 用迷你图解释瓶颈并补充证据 |
+| `PROVENANCE_UNKNOWN` | 源级D/E | 要求原始源标记或搜索原始源 |
+| `CHAIN_UNKNOWN` | 评估完成后没有完成链 | 3连锁完成策略，包括所需的数据类型 |
+
+## 随着当前应用程序的实现一起阅读 [#현재-앱-구현과-함께-읽기]
+
+本体设计、原文抽取与 SQLite 存储提供算法所需的数据和证据关联。逻辑判定契约与采集存储契约承担不同职责，应结合各自的实现文档阅读。
+
+<Cards>
+  <Card title={"阅读核心指南"} href="/docs/main-algorithm/overview" description={"了解 Cluevia 的目标算法与逐步实施标准。"} />
+  <Card title={"完整运行示例"} href="/docs/main-algorithm/worked-example" description={"检查缺失/不合格/双重/弱可信度的情况。"} />
+  <Card title={"当前实现流程"} href="/docs/algorithms/current-pipeline" description={"目前代码从设计到提取，验证，存储和显示。"} />
+  <Card title={"使用公共例子"} href="/docs/guide/quickstart" description={"在当前的应用程序中查看图表探索。"} />
+</Cards>

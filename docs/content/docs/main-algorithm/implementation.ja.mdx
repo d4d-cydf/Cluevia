@@ -1,0 +1,236 @@
+---
+title: "実装手順と受入基準"
+description: "メインアルゴリズムの責任分離、実行擬似コード、保存・再評価ルール、必須受付基準と未確定ポリシー。"
+---
+
+設計仕様を実行可能なシステムにするには、意味判定、契約検証、状態管理、数値計算の責任を分ける必要がある。本節では各責任を実装モジュールに対応付け、再現可能な実行と検証の条件を定める。保存済み資料と利用者による補完を用いる経路は実装済みである。外部検索プロバイダー、自動原文取得、HTTP リダイレクト追跡は未接続であり、提案方針の実装状況と実証的妥当性は別々に検討する。
+
+## 実装された実行パス [#구현된-실행-경로]
+
+完了または失敗したケースで**根拠診断**を開くと使用します。オブジェクトのない失敗ケースも、元の失敗記録を維持しながら別の根拠の欠落の診断バージョンを保存することができる。実行中・待機中の分析は診断を開始しない。
+
+保存済み記録の検索で結果が得られない場合は、サイズ上限内で元の入力本文を使用する。URL 文字列をリンク先の本文とは扱わない。資料がない要件は `EVIDENCE_MISSING`、存在する資料で条件を立証できない場合は `EVIDENCE_INSUFFICIENT` とする。他の AND 条件が欠けて完全な経路を作れなくても、既存資料が不十分な理由は保持する。架空の証拠や立証経路を生成せず、調査範囲が不完全なら判定とスコアを未確定のまま残す。
+
+1. 検証する主張を入力すると保存された原文の抜粋を検索し、モデルが論理・引用判定・事件規則・直接重複判定を提案する。
+2. サーバが原文引用と契約を確認し、AND・OR・NOT_SUPPORT候補、事件検査、重複観測、出典関門、支持スコアを評価する。
+3. 出典等級・係数・品質スコア・しきい値は自動確定しない。レビューの根拠を入力して保存したら、新しいバージョンに再評価します。独立性の根拠がない場合は、保守的な範囲を使用してください。
+4. 根拠の欠落で現在の原文を検索したり、公開検索リンクを直接開くことができます。ユーザー補完データは現在のロジックに接続され、新しいバージョンで評価されます。
+5. 過去のバージョンと原文は保存されています。レポートはMarkdown、論理・判定・スコアトラッキングを含む全体診断はJSONにダウンロードする。
+
+| 物理ファイル | 責任 |
+| --- | --- |
+| `src/types/why-not.ts` | バージョン snapshot, binding, witness, gap, action 契約 |
+| `server/why-not-contract.ts` | 入力上限・ツリー参照・引用位置・事象メタデータ検査 |
+| `server/why-not-engine.ts` | 候補組合、適格性、共有アトム計算、保守的範囲、根拠の欠落・アクション生成 |
+| `server/why-not-service.ts` | モデル提案の検証、SQLiteバージョン保存、資料補完、キャンセル・再起動復旧 |
+| `src/components/WhyNotPanel.tsx` | 論理構造・根拠の欠落・原文検索・検討・補完・バージョン・報告書画面 |
+
+### API [#api]
+
+すべてのパスは既存のワークスペース認証とケースの範囲に従います。
+
+| メソッド・パス | アクション |
+| --- | --- |
+| `GET /api/jobs/:id/why-not` | 最新の診断と最近の50バージョンのリスト |
+| `POST /api/jobs/:id/why-not` | `{ goal, previousId }`で非同期生成、または`{ supplement: { name, text, url }, previousId }`でデータ補完 |
+| `GET /api/jobs/:id/why-not/runs/:runId` | 保存されたバージョン原文・結果照会 |
+| `POST /api/jobs/:id/why-not/evaluate` | `{ snapshot, previousId }`契約検証後に新しい評価を保存 |
+| `POST /api/jobs/:id/why-not/cancel` | 進行中の検証の中断 |
+| `GET /api/jobs/:id/why-not/search?q=...` | ケース原文と既に追加した補完素材検索 |
+
+`previousId`が最新バージョンと異なる場合は409を返します。同じ原文の再補完は拒否し、変更のないレビュー保存は既存のバージョンを返します。完了したバージョンは上書きされず、ケースを削除すると一緒に削除されます。サーバ再起動時に進行中だった診断は失敗状態に変え、以前のsnapshotを保存する。
+
+### 現在の制限 [#현재-제한]
+
+- 自動生成は最大10個の抜粋を使用するため、`coverage.complete=false`で記録する。見えない資料がないと断定しない。
+- 出典の系譜追跡はsnapshotに登録した資料・引用連結の中で行う。外部URLを自動的に訪問しない。
+- 系譜・事件メタデータ・論理詳細修正は高度なJSONレビューを使用する。変更はサーバー検証に合格して保存されます。
+- 出典スコア・しきい値・独立性はユーザー入力仮定である。出力は補正された真実の確率ではありません。
+- モデルの論理設計・意味判定品質と実際のサービス遅延は別途の実資料評価が必要である。自動テストのモデル応答は帯域を使用します。
+
+## 現在のコードで再利用する部分 [#현재-코드에서-재사용할-부분]
+
+| 現在の実装 | 再利用できる機能 | 新たに必要な機能 |
+| --- | --- | --- |
+| `server/ontology.ts` | 抽出スキーマ・原文引用・識別根拠検査 | 主張別evidence bindingと適合性判定 |
+| `server/ontology-store.ts` | 資料・オブジェクト・根拠位置の保存 | ツリー・判定・根拠の欠落・ポリシーバージョン保存 |
+| `server/analysis-case.ts` | 記録別結果と根拠を統合して照会 | 論理ツリーと候補証拠木、共有証拠アトム |
+| `src/types/claims.ts` | 資料の主張態度とアナリストレビューステータス | 新しいEvidenceDecision契約 |
+| `server/evidence-search.ts` | 保存した原文検索に書き込むトークン | 外部直接資料の検索と確保履歴 |
+| `GraphRenderer.tsx` | オブジェクト・関係のグラフ表示 | AND・OR・NOT_SUPPORT、根拠の欠落と信頼度traceのミニグラフ |
+
+既存の`contentHash`・`sourceFamily`は重複候補を探す手がかりだ。同じ元出典や独立観測を完全に立証した識別子に自動昇格しない。現在`GraphDocument`は表示文書なので、Why-not Treeの論理・判定契約をすべて無理に込めずに別途構造を置く。
+
+## 責任の分離 [#책임-분리]
+
+| 役割 | LLMの責任 | コードの責任 |
+| --- | --- | --- |
+| ツリーの作成 | サブ主張・証拠要件・推論連結提案 | 契約、循環、前提条件、バージョン検証 |
+| 適合性 | 原文を読んで列挙・理由・引用提案 | 参照・区間・許容列挙・必須理由検査、支持関門 |
+| イベントマッチ | メタデータと基礎位置の抽出 | 確認された値でルールをチェックする。 UNKNOWNの保存 |
+| 重複 | 文脈上のような観測かどうか判定 | hash検査、判定検証、代表・依存性管理 |
+| 系譜 | 引用候補と資料タイプの提案 | 原文を取得し、訪問URLと予算を管理して系譜を検証する。 |
+| 信頼度 | 評価の根拠説明 | 政策値・式・共有変数・範囲・閾値計算 |
+| Gap Fill | 検索式、要請フレーズ、戦略・説明 | ツールの実行、結果の保存、再評価と終了 |
+
+LLMが出した自由記述だけでチェーン完成や最終数値を確定しない。同じ資料が異なる主張を支持しているかどうかを判断するときは、親主張と要件を一緒に提供します。
+
+<ResearchDiagram kind="architecture" number="I1" />
+
+## 実行擬似コード [#실행-의사코드]
+
+以下は制御フローを説明する擬似コードである。実際の実施は、候補暴症を避けるために遅延評価することができるが、各段階の意味と脱落の理由は維持しなければならない。
+
+```text
+function gapFind(snapshot, tree, policy):
+    validateTreeAndPolicy(tree, policy)
+    run = freezeVersions(snapshot, tree, policy)
+    diagnostics = []
+
+    candidates, completeness = buildExistingWitnesses(tree, snapshot) // 1-3
+    if candidates is empty:
+        recordMissingRequirements(diagnostics)
+        return finalize(run, candidates, completeness, diagnostics)
+
+    candidates = checkSupportPerBinding(candidates, snapshot, diagnostics) // 1-4
+    candidates = checkGlobalEventRules(candidates, policy, diagnostics)    // 1-5
+    candidates = deduplicateWithinParents(candidates, diagnostics)         // 1-6
+
+    provenance = traceSourcesWithBudgets(candidates, policy, diagnostics)  // 1-7
+    queueNewEvidenceForNextSnapshot(provenance.discoveredEvidence)
+    candidates = applySourceEligibility(candidates, provenance, diagnostics)
+
+    dependencies = buildSharedAtomGraph(tree, candidates, provenance)
+    confidence = evaluateOriginalLogic(tree, candidates, dependencies, policy)
+    recordWeakTrustWhereApplicable(confidence, diagnostics)               // 1-8
+    return finalize(run, candidates, completeness, diagnostics, confidence)
+
+function finalize(run, candidates, completeness, diagnostics, confidence=null):
+    collectPendingDecisionsAndInterruptedStages(completeness)
+    completeChains = candidates with all required eligibility gates passed
+    if completeChains is empty and completeness is COMPLETE:
+        add CHAIN_UNKNOWN referring to detailed blocking gaps
+    else if completeChains is empty:
+        chainStatus = UNDETERMINED
+    else:
+        chainStatus = COMPLETE_CHAIN_FOUND
+    return persistRunResult(run, diagnostics, chainStatus, confidence)
+
+function gapFill(result, policy):
+    actions = mergeCompatibleActions(dispatchByGapType(result.gaps))
+    executeBoundedReadActions(actions, policy)
+    requestUserEvidenceWhenNeeded(actions)
+    if inputsChanged() and roundBudgetRemains():
+        return gapFind(newSnapshot(), currentTreeVersion(), policy)
+    return currentResultWithActionStatus()
+```
+
+最終的に基準を満たしたと表示するには、ROOTを阻止する根拠の欠落と直接反証の検討保留があってはならない。スコアが高くても`CONTRADICTORY_EVIDENCE`が未解決であれば、検討の必要状態を維持する。
+
+四半期が脱落しても、他のOR代替案の評価を続けます。資料が現在処理中であるか判定呼び出しが失敗した場合 完結性を下げ、すべての資料を検査して脱落させたかのように処理しない。すでに確認された完成チェーンは、他の代替案が未完成であっても存在する事実を報告することができる。
+
+## モジュール間結果契約 [#모듈-간-결과-계약]
+
+| ステップ結果 | 必ず残すフィールド |
+| --- | --- |
+| 候補の作成 | requirement 別使用 binding、選択した OR 分、省略なしに維持された AND 要求 |
+| 適合性 | binding別enum・理由・引用・判定バージョン・完了可否 |
+| 事件検査 | ルールID・バージョン、期待値・観測値、MATCH/MISMATCH/UNKNOWN |
+| 重複検査 | 比較単位親、判定ペア、代表資料、アトム、マージの根拠 |
+| 系譜検査 | 訪問URL・資料、検証された連結、LR種類・値・モデル、終了コード |
+| 信頼度 | ノード別式と入力、共有アトム、仮定、スコア・区間・null、しきい値 |
+| 根拠の欠落 | ステップ・タイプ・reasonCode、影響範囲、関連候補と原因 gap |
+| 補完 | アクション・検索記録・資料要求、結果候補、再評価段階、終了理由 |
+
+作業・API・UIで同じenumを共有する。判定値と原文引用が不一致または必須理由がない場合は、スキーマエラーで返却し、レビュー保留として残す。形式エラーを自動的に支持判定で補正しない。
+
+## キャッシュと再評価 [#캐시와-재평가]
+
+キャッシュキーにデータhashだけを入れない。次の要因が異なる場合は、該当するステップの結果を再確認してください。
+
+```text
+부모 주장·requirement + 원문 구간·자료 버전
++ 사건 범위·규칙 버전 + 트리 버전
++ 판정 enum·프롬프트·모델 버전 + 출처·신뢰도 정책 버전
+```
+
+主張Aに対する判定を主張Bにそのまま再使用しない。新しいデータが同じ親の重複するバンドルやグローバル依存性を変更できるため、対応するbindingの親ノードのみを単純に更新すれば十分であると仮定しない。影響を受ける重複グループ・系譜・共有アトムとルート計算を再評価する。
+
+削除の代わりに新しいバージョンを作成し、以前の結果に関連付けます。原文、脱落ツリー、反証、失敗呼び出しと中断原因を保存しなければ、同一入力の結果を再現できる。
+
+<Equation number="I1" label={"判定再利用のためのバージョン依存性"} tex={String.raw`K_b=\operatorname{hash}(b,\,v_E,\,v_T,\,v_D,\,v_{\mathrm{event}},\,v_{\mathrm{trust}})`} />
+
+上記の表は、キャッシュの概念的依存性を要約しています。実際のキーには、該当モジュールの判定に影響を与えるモデル・プロンプト・スキーマバージョンも含まなければならない。異なる主張のbindingを資料IDが同じという理由だけで同じように扱わない。
+
+## 結果画面の最小要求 [#결과-화면의-최소-요구]
+
+画面には目標主張、全体の評価状態、完成または確認済みチェーン数、支持スコアの範囲または不明状態、基準への到達状況、ROOT を阻む欠落、次のアクションを示す。原文、判定理由、期待値と観測値、計算トレースを開いて確認できなければならない。
+
+TRUST_WEAKミニグラフは元のツリー全体の要約です。表示で折りたたまれた前提条件を計算から差し引かない。 CHAIN_UNKNOWNの戦略3つは、確保された事実グラフと区別して計画であることを表示する。
+
+## 必須検収事例 [#필수-검수-사례]
+
+| 番号 | 入力・状況 | 期待結果 |
+| --- | --- | --- |
+| T01 | 存在する証拠が0個 | `EVIDENCE_MISSING`、完結評価なら`CHAIN_UNKNOWN`。スコア null |
+| T02 | AND の必須 requirement 1 つが空です | 残りの子だけで通過不可 |
+| T03 | OR 1つの選択肢しか獲得できない | 取得済みの代替経路は評価できる。不足する代替経路には局所的な欠落を残す。 |
+| T04 | 判定がSUPPORTED以外の値 | 理由なく通過しない |
+| T05 | 未検討またはLLMタイムアウト | `INCOMPLETE`：経路が存在しないとは確定しない |
+| T06 | 予定記録だけで完了主張 | `EVIDENCE_INSUFFICIENT`と事実強度差説明 |
+| T07 | 時間帯表記が違うが、同じ絶対時刻 | ルールに合わせて一致可能 |
+| T08 | イベントキーが異なる | `EVENT_MISMATCH`、期待/観測値の保存 |
+| T09 | イベント必須フィールドがありません | UNKNOWN、不十分なメタデータ要求。不一致で断定禁止 |
+| T10 | 隣接時間区間のみが重なり、全体の交差集合がない | SAME_EVENT候補の脱落 |
+| T11 | 同じ素材のレプリカを追加 | 候補代表の縮小全スコア増加なし |
+| T12 | 他の親が同じ観測を再利用 | requirementは維持し、atomは共有 |
+| T13 | 同じURL・文書に異なる独立記録 | 文書単位で無条件にマージしない |
+| T14 | LLM冗長判定がA≈B、B≈Cのみあり | 検証なしでA≈Cへの遷移のマージ禁止 |
+| T15 | 既知の資料の追加 LR=1 | 既存の素材を保持、独立リーフを追加しない |
+| T16 | 追加`LR < 1` | 反証保存・再評価。情報なしで取扱い禁止 |
+| T17 | LR算定不可 | nullと理由任意 1 代入禁止 |
+| T18 | URL循環・リダイレクト繰り返し・予算超過 | 有限終了、終了コード、未確認範囲の保存 |
+| T19 | 出典 D/E | `PROVENANCE_UNKNOWN`;該当する必須資料でチェーン完了禁止 |
+| T20 | 出典係数1.0やデータ判定不適格 | 出典スコアで不適格を蘇らない |
+| T21 | 独立0.8、0.6 | AND=0.48, OR=0.92 |
+| T22 | 共有aの`(a AND b) OR (a AND c)` | 0.8・0.7・0.6 例では0.704 |
+| T23 | NOT_SUPPORTの不可欠な根拠の欠落 | 未検出を真に変えずに根拠の欠落 |
+| T24 | 論理チェーンは完成、スコアのみ基準未達 | `TRUST_WEAK`;自動CHAIN_UNKNOWN重複生成なし |
+| T25 | 全ての候補者が適格性から脱落、評価完了 | 原因gapに接続されている`CHAIN_UNKNOWN` |
+| T26 | まだ列挙していない候補が予算のため残る | `UNDETERMINED`：経路が存在しないとは確定しない |
+| T27 | 新しいURLですが、従来と同じ素材のみを繰り返し取得 | 新たな独立証拠や進展として数えず、反復を終了する。 |
+| T28 | 信頼度区間がしきい値を横切る | 十分確定禁止、依存性確認アクション |
+| T29 | Gap Fill戦略3個作成 | 実在する資料と計画を区別し、未取得の出典を捏造しない。 |
+| T30 | 循環ツリー・空 claim・理由のない判定 | 設計/契約エラー。事実根拠の欠落や成功への変換禁止 |
+
+本表は設計全体の受け入れ基準である。実装の検証は `server/why-not-engine.test.ts`、`server/why-not-service.test.ts`、`tests/why-not.spec.ts` にあり、組合せ、欠落、共有観測、時刻比較、出典判定、中断、版の保存、資料補完、レポート取得を扱う。T18 の外部 HTTP リダイレクト検証は現在の対象外である。実モデルの判断品質、外部検索の成功率、大規模運用時の負荷をこれらのテストが証明するわけではない。
+
+## 実装推奨順序 [#구현-권장-순서]
+
+1. ツリー・requirement・binding・判定・gap契約とバージョン保存をする。
+2. 固定 fixture を用い、モデルなしで 1-3 の集合生成と AND・OR・NOT_SUPPORT の判定伝播を実装する。
+3. 1-4の適合性判定連結と1-5事件規則を追加する。
+4. 1-6重複判定、グローバルアトム共有と1-7系譜追跡を追加する。
+5. 1-8 の独立計算、共有変数、未知の依存性の処理、計算 trace を実装する。
+6. 6 Gap Fill アクション、ミニグラフとチェーン戦略、有限再評価ループを接続する。
+7. 固定事例と実際の資料の判定一致度・誤ったマージ・根拠の欠落欠け・数値補正を別途評価する。
+
+文書の公式事例のみ合うことで、実際の資料での根拠判定精度を検証したとは言わない。
+
+## まだ確定すべき方針 [#아직-확정해야-할-정책]
+
+| ポリシー | 現状 | ドラフト方向 |
+| --- | --- | --- |
+| NOT 意味 | **確定** | 否定証明データのAND |
+| 出典 A–E 詳細定義 | 提案 | 系譜確認の程度に応じた製品用グレード |
+| 等級・資料品質の数値 | 未確認 | 数値の根拠・評価者・バージョン保存。動作値 任意固定禁止 |
+| 係数 1.0 データタイプ | 未確認 | 検証条件付きのRegistry |
+| ルート・サブしきい値 | 未確認 | ケース0.80は説明用です。運営方針で明示 |
+| LR推定モデル | 未確認 | 数値算定不可時null、系譜確認のみ継続 |
+| 新情報なしの内容判定 | 提案 | 数値LRと区分重複加算抑制 |
+| 出典・検索・組合・計算予算 | 未確認 | 有限値と終了コード必須 |
+| 未依存の処理 | 提案 | 保守的な範囲を返すか数値を保留する。独立とはみなさない。 |
+| 反証衝突処理 | マテリアライズルール | サポートセット以外にも保存、同一目標衝突は検討対象として表示 |
+| チェーン完成の意味 | マテリアライズルール | 適格接続完成とスコア基準の充足を別軸で管理 |
+
+提案値を確定するときは、ポリシーバージョンを上げ、既存の評価に与える影響を再検査する。現在の指針は、値が未定であっても必要な入力・分岐・出力・失敗処理を実装できるように定義した基準である。

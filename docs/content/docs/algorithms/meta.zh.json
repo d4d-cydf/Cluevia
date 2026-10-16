@@ -1,0 +1,12 @@
+{
+  "title": "已实现算法",
+  "pages": [
+    "current-pipeline",
+    "extraction",
+    "validation",
+    "board-layout",
+    "edge-routing",
+    "timeline",
+    "exploration"
+  ]
+}

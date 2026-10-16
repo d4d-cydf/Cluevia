@@ -261,7 +261,7 @@ test('planner keeps complex unmapped fields for bounded source review after one 
   });
   assert.equal(calls, 2); assert.equal(definition.sourceMappings.length, 0);
   assert.match(definition.processing.rationale, /2개 열.*원문을 보존/);
-  assert.ok(progress.some(message => message.includes('작은 단위로 Codex 검토')));
+  assert.ok(progress.some(message => message.includes('작은 단위로 AI가 검토')));
 });
 
 test('planner counts a long narrative semantic column as covered without requiring an oversized property', async () => {
@@ -419,22 +419,22 @@ const narrativeDefinition = () => parseOntologyDefinition({ apiName: 'Reports', 
 const narrativeInput = (rows = 2): GraphGenerationInput => ({ question: '보고서별 출하 내용을 분석해 주세요.', documents: [{ id: 'reports', name: 'reports.jsonl', text: Array.from({ length: rows }, (_, index) => JSON.stringify({ doc_id: `R${index + 1}`, body: `Shipment O${index + 1} was dispatched.` })).join('\n') }] });
 const reportRule = { apiName: 'reportForm', displayName: '보고서 형식', purpose: 'classification', sourceName: 'reports.jsonl', columns: ['body'], question: '서술된 보고서 형식은 무엇인가요?', choices: [{ apiName: 'shipment', description: '출하 내역을 직접 보고함' }, { apiName: 'uncertain', description: '분류를 명시적으로 확인할 수 없음' }] };
 
-test('jobs separate high ontology design from xhigh Jev rule planning and persist validated rules', async t => {
+test('jobs separate medium ontology design from high Jev rule planning and persist validated rules', async t => {
   const stages: string[] = [];
   const { manager, store } = setup(t, async (input, config) => {
     stages.push(input.purpose ?? 'extraction');
     if (input.purpose === 'ontology-design') {
-      assert.equal(config?.effort, 'high');
+      assert.equal(config?.effort, 'medium');
       assert.match(input.context!, /decisionRules=\[\]/);
       return narrativeDefinition();
     }
     if (input.purpose === 'jev-planning') {
-      assert.equal(config?.effort, 'xhigh');
+      assert.equal(config?.effort, 'high');
       assert.deepEqual(input.documents.map(document => document.name), ['reports.jsonl']);
       assert.match(input.context!, /semanticColumns/);
       return { decisionRules: [reportRule] };
     }
-    assert.equal(config?.effort, 'xhigh');
+    assert.equal(config?.effort, 'high');
     return { ...extracted(input), entities: [], relationships: [], limitations: ['추가로 확인할 관계가 없습니다.'] };
   }, { assessJevDecisions: async () => ({ route: 'individual', reason: '개별 검토', context: 'Advisory only.', decisions: [] }) });
   const job = await finish(manager, manager.create(narrativeInput()).id);
@@ -471,7 +471,7 @@ test('invalid or timed-out Jev rule plans keep the valid ontology and never retr
     }, {}, { id: 'fallback-rules', planJevRules: true, signal: new AbortController().signal, usage: () => {}, progress: message => { progress.push(message); } });
     assert.equal(calls, 2); assert.deepEqual(result.processing.decisionRules, []);
     assert.deepEqual(result.sourceMappings, narrativeDefinition().sourceMappings);
-    assert.match(progress.join('\n'), /Codex 원문 검토로 계속/);
+    assert.match(progress.join('\n'), /AI 원문 검토로 계속/);
     assert.doesNotMatch(progress.join('\n'), /provider internal details/);
   }
 });

@@ -60,7 +60,7 @@ test('dropped evidence starts an analysis with the default extraction question',
   const job = { id: 'dropped-source-job', status: 'running', stage: 'designing', message: '자료에 맞는 온톨로지를 설계하고 있습니다.', question, createdAt: '2026-10-10T00:00:00Z', updatedAt: '2026-10-10T00:00:00Z' };
   let submission: unknown;
   await page.route('**/api/documents/upload', route => route.fulfill({ status: 201, json: { document: { id: 'dropped-source', name: 'dropped.txt', bytes: 14, characters: 14, chunkCount: 1, createdAt: job.createdAt } } }));
-  await page.route('**/api/jobs', route => { submission = route.request().postDataJSON(); return route.fulfill({ status: 202, json: { job } }); });
+  await page.route('**/api/jobs', route => { if (route.request().method() === 'GET') return route.fulfill({ json: { jobs: [job] } }); submission = route.request().postDataJSON(); return route.fulfill({ status: 202, json: { job } }); });
   await page.route('**/api/jobs/dropped-source-job', route => route.fulfill({ json: { job } }));
   await page.goto('/');
   const dataTransfer = await page.evaluateHandle(() => {
@@ -72,7 +72,7 @@ test('dropped evidence starts an analysis with the default extraction question',
   await expect(page.getByRole('list', { name: 'Attached files' })).toContainText('dropped.txt');
   await startUnscopedAnalysis(page);
   await expect(page).toHaveURL('/analysis/dropped-source-job');
-  await expect(page.getByLabel('AI analysis activity', { exact: true })).toContainText(question);
+  await expect(page.getByLabel('분석 세션 설명', { exact: true })).toContainText(question);
   expect(submission).toEqual({ question, documents: [], uploadIds: ['dropped-source'] });
 });
 
@@ -80,7 +80,7 @@ test('a question without uploaded evidence submits an existing-knowledge job', a
   const question = 'What connections are shown in this example case?';
   let submitted: unknown;
   const job = { id: 'workspace-test-job', status: 'queued', stage: 'preparing', message: '저장된 자료로 작업 대기 중', question, createdAt: '2026-10-10T00:00:00Z', updatedAt: '2026-10-10T00:00:00Z' };
-  await page.route('**/api/jobs', route => { submitted = route.request().postDataJSON(); return route.fulfill({ status: 202, json: { job } }); });
+  await page.route('**/api/jobs', route => { if (route.request().method() === 'GET') return route.fulfill({ json: { jobs: [job] } }); submitted = route.request().postDataJSON(); return route.fulfill({ status: 202, json: { job } }); });
   await page.route('**/api/jobs/workspace-test-job', route => route.fulfill({ json: { job } }));
   await page.goto('/');
   await page.getByLabel('What do you want to find out?').fill(question);
@@ -88,17 +88,18 @@ test('a question without uploaded evidence submits an existing-knowledge job', a
   await expect(page).toHaveURL('/analysis/workspace-test-job');
   await expect(page.getByLabel('AI analysis activity', { exact: true })).toContainText(job.message);
   expect(submitted).toEqual({ question, documents: [] });
-  await expect(page.getByLabel('AI analysis activity', { exact: true })).toContainText(question);
+  await expect(page.getByLabel('분석 세션 설명', { exact: true })).toContainText(question);
 });
 
-test('view tabs navigate between the graph layouts and timeline', async ({ page }) => {
+test('view tabs present overview before the detailed graph layouts', async ({ page }) => {
   await page.goto(`${demoCase}/board`);
+  await expect(page.getByRole('navigation', { name: 'Graph views' }).getByRole('link')).toHaveText(['OVERVIEW', 'BOARD', 'LANES']);
+  await page.getByRole('link', { name: /^Overview$/i }).click();
+  await expect(page).toHaveURL(`${demoCase}/overview`);
+  await expect(page.getByRole('region', { name: '분석 결과 요약', exact: true })).toBeVisible();
   await page.getByRole('link', { name: /^Lanes$/i }).click();
   await expect(page).toHaveURL(`${demoCase}/lanes`);
   await expect(page.getByRole('region', { name: 'Investigation graph, lanes view' })).toBeVisible();
-  await page.getByRole('link', { name: /^Timeline$/i }).click();
-  await expect(page).toHaveURL(`${demoCase}/timeline`);
-  await expect(page.getByRole('region', { name: 'Investigation timeline. Scroll horizontally to explore dates.' })).toBeVisible();
   await page.getByRole('link', { name: /^Board$/i }).click();
   await expect(page).toHaveURL(`${demoCase}/board`);
 });
@@ -138,7 +139,7 @@ test('sending a follow-up adds the question and an honest prototype reply', asyn
   await page.getByRole('textbox', { name: 'Follow-up question', exact: true }).fill(followup);
   await page.getByRole('button', { name: /^Send(?: message)?$/i }).click();
   await expect(page.getByText(followup, { exact: true })).toBeVisible();
-  await expect(page.getByText('Your question is saved in this demo case. Explore the linked evidence on the board or timeline. Live research is not available in this preview.', { exact: true })).toBeVisible();
+  await expect(page.getByText('Your question is saved in this demo case. Explore the linked evidence in Overview or on the board. Live research is not available in this preview.', { exact: true })).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'Follow-up question', exact: true })).toBeEmpty();
 });
 
@@ -156,16 +157,13 @@ test('export produces a readable JSON case file', async ({ page }) => {
   expect(exported.timeline.events).toHaveLength(17);
 });
 
-test('timeline event selection updates details and payment bars support keyboard inspection', async ({ page }) => {
+test('a legacy timeline link opens Overview and preserves access to the board', async ({ page }) => {
   await page.goto(`${demoCase}/timeline`);
-  const event = page.getByRole('button', { name: 'Deposit, 5 OCT 2026, Exchange deposit', exact: true });
-  await event.click();
-  await expect(event).toHaveAttribute('aria-pressed', 'true');
-  const inspector = page.getByRole('region', { name: 'Selected event', exact: true });
-  await expect(inspector).toContainText('Deposit');
-  await expect(inspector).toContainText('exchange deposit address receives the funds');
-  await page.getByRole('img', { name: '4 OCT 2026: 6 payments', exact: true }).focus();
-  await expect(page.getByRole('status').filter({ hasText: '4 OCT · 6 payments' })).toBeVisible();
+  await expect(page).toHaveURL(`${demoCase}/overview`);
+  await expect(page.getByRole('region', { name: '분석 결과 요약', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: /^Timeline$/i })).toHaveCount(0);
+  await page.getByRole('link', { name: /^Board$/i }).click();
+  await expect(page.getByRole('region', { name: 'Investigation graph, board view' })).toBeVisible();
 });
 
 test('an unknown case shows a missing-case screen', async ({ page }) => {
@@ -182,7 +180,9 @@ test.describe('mobile layout', () => {
     await expectNoPageOverflow(page);
     await page.getByRole('button', { name: '사이드바 열기', exact: true }).click();
     await page.getByRole('link', { name: /Original design demo/ }).click();
-    await expect(page).toHaveURL(`${demoCase}/board`);
+    await expect(page).toHaveURL(`${demoCase}/overview`);
+    await expect(page.getByRole('region', { name: '분석 결과 요약', exact: true })).toBeVisible();
+    await page.getByRole('link', { name: /^Board$/i }).click();
     await expectNoPageOverflow(page);
     await page.getByRole('button', { name: 'IP ADDRESS: 203.0.113.42', exact: true }).click();
     await expect(page.getByRole('region', { name: 'Selected object', exact: true })).toContainText('203.0.113.42');
@@ -190,11 +190,8 @@ test.describe('mobile layout', () => {
     await page.getByRole('link', { name: /^Lanes$/i }).click();
     await expect(page).toHaveURL(`${demoCase}/lanes`);
     await expectNoPageOverflow(page);
-    await page.getByRole('link', { name: /^Timeline$/i }).click();
-    await expect(page).toHaveURL(`${demoCase}/timeline`);
-    await expectNoPageOverflow(page);
-    await page.getByRole('button', { name: 'Deposit, 5 OCT 2026, Exchange deposit', exact: true }).click();
-    await expect(page.getByRole('region', { name: 'Selected event', exact: true })).toContainText('Deposit');
+    await page.getByRole('link', { name: /^Overview$/i }).click();
+    await expect(page).toHaveURL(`${demoCase}/overview`);
     await expectNoPageOverflow(page);
   });
 });

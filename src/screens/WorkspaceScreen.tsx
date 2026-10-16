@@ -1,24 +1,39 @@
 import { randomId } from '../lib/random-id';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, NavLink, useParams } from 'react-router-dom';
 import { Icon } from '../components/Icon';
 import BrandLogo, { BrandMark } from '../components/BrandLogo';
-import { CaseSidebarToggle } from '../components/CaseSidebar';
+import { CaseSidebarPanel, CaseSidebarToggle } from '../components/CaseSidebar';
 import { investigationSteps, objectColors } from '../mock/case-0143';
 import { caseRepository, readCaseDraft, readSession, writeSession } from '../services/case-repository';
 import type { Attachment, CaseAction, CaseMessage, InvestigationCase, WorkspaceView } from '../types/case';
+import type { GraphDocument } from '../types/graph';
+import ClaimOverview from '../components/graph/ClaimOverview';
 import BoardView from './BoardView';
 import LanesView from './LanesView';
-import TimelineView from './TimelineView';
 import './workspace.css';
 
-const dateOf = (day: number) => `${day <= 10 ? 20 + day : day - 10} ${day <= 10 ? 'SEP' : 'OCT'} 2026`;
-const views: WorkspaceView[] = ['board', 'lanes', 'timeline'];
+const views: WorkspaceView[] = ['overview', 'board', 'lanes'];
 const citationObjects: Record<string, string> = { E1: 'ip', E2: 'cert', E4: 'kit', E6: 'exch' };
-const citationEvents: Record<string, string> = { E1: 'ev6', E2: 'ev8', E4: 'ev12', E6: 'ev14' };
+
+function demoOverview(data: InvestigationCase): GraphDocument {
+  const objects = Object.values(data.objects);
+  const sourceIds = (value: string) => value.split('·').map(id => id.trim()).filter(Boolean);
+  const sources = [...new Set(objects.flatMap(object => sourceIds(object.src)))];
+  return {
+    schemaVersion: '1.0', id: data.id, title: data.title, question: data.question,
+    summary: '디자인 데모에 저장된 관계를 정리한 예시입니다.', origin: 'demo', createdAt: '2026-10-10T00:00:00Z',
+    limitations: ['가상의 디자인 데모이며 실제 사건의 조사 결과가 아닙니다.'],
+    groups: Object.entries(objectColors).map(([id, color]) => ({ id, label: id, color })),
+    sources: sources.map(id => ({ id, title: `데모 근거 ${id}`, excerpt: objects.filter(object => sourceIds(object.src).includes(id)).map(object => object.note).join('\n') })),
+    nodes: objects.map(object => ({ id: object.id, label: object.value, type: object.type, group: object.group, description: object.note, sourceIds: sourceIds(object.src), properties: Object.fromEntries(object.props) })),
+    edges: data.links.map(link => ({ ...link, label: link.label || '연결됨', description: `${data.objects[link.source].value} · ${link.label || '연결됨'} · ${data.objects[link.target].value}`, status: link.kind === 'inf' ? 'inferred' : 'reported', sourceIds: [...new Set([...sourceIds(data.objects[link.source].src), ...sourceIds(data.objects[link.target].src)])], highlighted: link.kind === 'ans' })),
+    findings: [], events: [],
+  };
+}
 
 export default function WorkspaceScreen() {
-  const { id = '', view = 'board' } = useParams();
+  const { id = '', view = 'overview' } = useParams();
   const [caseData, setCaseData] = useState<InvestigationCase | null | undefined>();
   const [loadError, setLoadError] = useState('');
 
@@ -30,7 +45,7 @@ export default function WorkspaceScreen() {
     return () => { active = false; };
   }, [id]);
 
-  if (!views.includes(view as WorkspaceView)) return <Navigate to={`/case/${id}/board`} replace />;
+  if (!views.includes(view as WorkspaceView)) return <Navigate to={`/case/${id}/overview`} replace />;
   if (loadError || caseData === null) return <main className="empty-state"><p className="eyebrow">CASE NOT FOUND</p><h1>{loadError || 'This case is not in the file.'}</h1><p>The preview includes case 0143.</p><Link to="/case/0143/board">Open the demo case →</Link><Link to="/">Return home</Link></main>;
   if (!caseData) return <main className="empty-state" role="status"><BrandMark size={36} /><p>Opening the case file…</p></main>;
   return <CaseWorkspace key={caseData.id} data={caseData} view={view as WorkspaceView} />;
@@ -40,7 +55,7 @@ function CaseWorkspace({ data, view }: { data: InvestigationCase; view: Workspac
   const [initialDraft] = useState(readCaseDraft);
   const question = initialDraft?.question.trim() || (initialDraft?.files.length ? 'Investigate the attached evidence.' : data.question);
   const [selectedObject, setSelectedObject] = useState('wallet');
-  const [selectedEvent, setSelectedEvent] = useState('ev14');
+  const [inspectorOpen, setInspectorOpen] = useState(false);
   const [showPath, setShowPath] = useState(true);
   const [phase, setPhase] = useState(0);
   const [replayKey, setReplayKey] = useState(0);
@@ -60,13 +75,13 @@ function CaseWorkspace({ data, view }: { data: InvestigationCase; view: Workspac
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const stageRef = useRef<HTMLElement>(null);
+  const inspectorRef = useRef<HTMLElement>(null);
+  const inspectorCloseRef = useRef<HTMLButtonElement>(null);
   const threadRef = useRef<HTMLDivElement>(null);
   const done = phase >= 6;
-  const isTimeline = view === 'timeline';
   const object = data.objects[selectedObject];
-  const event = data.timeline.events.find(item => item.id === selectedEvent)!;
-  const eventRow = data.timeline.rows.find(row => row.id === event.row)!;
-  const activeObject = isTimeline ? data.objects[event.row] : object;
+  const activeObject = object;
+  const overview = useMemo(() => demoOverview(data), [data]);
 
   useEffect(() => {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { setPhase(6); return; }
@@ -79,14 +94,36 @@ function CaseWorkspace({ data, view }: { data: InvestigationCase; view: Workspac
   useEffect(() => { writeSession(`cluevia.${data.id}.actions`, actions); }, [data.id, actions]);
   useEffect(() => { if (messages.length) threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight }); }, [messages]);
   useEffect(() => { if (notice) { const timer = window.setTimeout(() => setNotice(''), 4500); return () => window.clearTimeout(timer); } }, [notice]);
+  useEffect(() => { setInspectorOpen(false); }, [view]);
+  useEffect(() => {
+    if (!inspectorOpen || !done) return;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const panel = inspectorRef.current;
+    const frame = requestAnimationFrame(() => inspectorCloseRef.current?.focus({ preventScroll: true }));
+    const dismiss = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault(); event.stopPropagation();
+      setInspectorOpen(false);
+    };
+    window.addEventListener('keydown', dismiss, true);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('keydown', dismiss, true);
+      if (previous?.isConnected && panel?.contains(document.activeElement)) previous.focus({ preventScroll: true });
+    };
+  }, [inspectorOpen, done]);
+
+  function selectObject(id: string) {
+    setSelectedObject(id);
+    setInspectorOpen(true);
+  }
 
   function selectCitation(label: string) {
-    setSelectedObject(citationObjects[label]);
-    setSelectedEvent(citationEvents[label]);
+    selectObject(citationObjects[label]);
   }
 
   function citation(label: string) {
-    const selected = isTimeline ? selectedEvent === citationEvents[label] : selectedObject === citationObjects[label];
+    const selected = selectedObject === citationObjects[label];
     return <button type="button" className={`ws-citation${selected ? ' is-active' : ''}`} aria-label={`Show evidence ${label}`} aria-pressed={selected} onClick={() => selectCitation(label)}>{label}</button>;
   }
 
@@ -102,7 +139,7 @@ function CaseWorkspace({ data, view }: { data: InvestigationCase; view: Workspac
   }
 
   function askAbout() {
-    setDraft(isTimeline ? `What happened on ${dateOf(event.d)} with ${eventRow.name}? ` : `Tell me more about ${object.value}. `);
+    setDraft(`Tell me more about ${object.value}. `);
     inputRef.current?.focus();
     inputRef.current?.scrollIntoView({ block: 'nearest' });
   }
@@ -138,22 +175,22 @@ function CaseWorkspace({ data, view }: { data: InvestigationCase; view: Workspac
     return <div className="ws-action-buttons">{activeObject.actions.map(label => {
       const queued = actions.some(action => action.objectId === activeObject.id && action.label === label);
       return <button key={label} type="button" className={queued ? 'is-queued' : ''} disabled={queued || !!pendingAction} onClick={() => void queueAction(label)}>{queued ? `Queued: ${label}` : label}</button>;
-    })}<button type="button" className="ws-secondary" onClick={askAbout}>Ask about this</button>{isTimeline && <Link to={`/case/${data.id}/board`} onClick={() => setSelectedObject(event.row)}>Open on board</Link>}</div>;
+    })}<button type="button" className="ws-secondary" onClick={askAbout}>Ask about this</button></div>;
   }
 
-  const graphProps = { objects: data.objects, links: data.links, selectedId: selectedObject, onSelect: setSelectedObject, showPath, phase };
+  const graphProps = { objects: data.objects, links: data.links, selectedId: selectedObject, onSelect: selectObject, showPath, phase };
   const visibleAt = [0, 1, 3, 4, 5];
   const visibleObjects = Object.values(data.objects).filter(item => (view !== 'lanes' || item.id !== 'block') && phase >= visibleAt[item.stage]);
   const visibleLinks = data.links.filter(link => visibleObjects.some(item => item.id === link.source) && visibleObjects.some(item => item.id === link.target));
-  const count = isTimeline ? `${data.timeline.events.length} events · ${data.timeline.rows.length} objects` : `${done ? 'Ontology' : 'Building'} · ${visibleObjects.length} objects · ${visibleLinks.length} links`;
+  const count = `${done ? 'Ontology' : 'Building'} · ${visibleObjects.length} objects · ${visibleLinks.length} links`;
 
   return <div className="workspace">
     <header className="ws-header">
       <div className="ws-header-left"><CaseSidebarToggle /><Link to="/" className="ws-brand" aria-label="Cluevia home"><BrandLogo /></Link><span className="ws-header-rule" /><div className="ws-case-title"><span>CASE {data.id}</span><strong title={question}>{initialDraft ? question : data.title}</strong></div></div>
-      <div className="ws-header-actions"><span className="ws-demo-label">DEMO</span><Link to="/"><Icon name="plus" size={14} />NEW CASE</Link><button type="button" onClick={exportCase}>EXPORT</button><details className="ws-menu ws-account"><summary aria-label="Account"><span>JH</span></summary><div><strong>Local workspace</strong><small>Demo session</small><Link to="/">Start a new case →</Link></div></details></div>
+      <div className="ws-header-actions"><span className="ws-demo-label">DEMO</span><Link to="/new"><Icon name="plus" size={14} />NEW CASE</Link><button type="button" onClick={exportCase}>EXPORT</button><details className="ws-menu ws-account"><summary aria-label="Account"><span>JH</span></summary><div><strong>Local workspace</strong><small>Demo session</small><Link to="/new">Start a new case →</Link></div></details></div>
     </header>
     <div className="ws-body">
-      <aside className="ws-conversation" aria-label="Conversation">
+      <CaseSidebarPanel caseId={`demo-${data.id}`} title={initialDraft ? question : data.title}><section className="ws-conversation gw-conversation legacy-case-conversation" aria-label="Conversation">
         <div className="ws-thread" ref={threadRef}>
           <div className="ws-user-message">{question}{initialDraft?.files.map(file => <span className="ws-message-file" key={file.id}><Icon name="attach" size={12} />{file.name}</span>)}</div>
           <div className="ws-assistant"><div className="ws-assistant-label"><BrandMark size={16} /><span>COPILOT</span></div>
@@ -173,11 +210,11 @@ function CaseWorkspace({ data, view }: { data: InvestigationCase; view: Workspac
             <div className="ws-compose-actions"><input className="sr-only" ref={fileRef} type="file" multiple tabIndex={-1} aria-label="Attach files" onChange={event => { setFiles(previous => [...previous, ...Array.from(event.target.files ?? []).map(file => ({ id: randomId(), name: file.name, size: file.size }))]); event.target.value = ''; }} /><button type="button" aria-label="Attach files" title="Attach files" onClick={() => fileRef.current?.click()}><Icon name="attach" size={18} /></button><button type="submit" aria-label="Send" className="ws-send" disabled={sending || (!draft.trim() && !files.length)}><Icon name="send" size={18} /></button></div>
           </div>
         </form>
-      </aside>
-      <section ref={stageRef} className={`ws-stage ws-stage--${view}`} aria-label={isTimeline ? 'Investigation timeline' : 'Investigation graph'}>
+      </section></CaseSidebarPanel>
+      <section ref={stageRef} className={`ws-stage ws-stage--${view}`} aria-label="Investigation graph" onClick={event => { if (event.target instanceof Element && !event.target.closest('button, a, input, textarea, .ws-object-inspector')) setInspectorOpen(false); }}>
         <div className="ws-toolbar"><nav aria-label="Graph views">{views.map(item => <NavLink key={item} to={`/case/${data.id}/${item}`} aria-label={item.charAt(0).toUpperCase() + item.slice(1)}>{item.toUpperCase()}</NavLink>)}</nav><div className="ws-graph-tools"><span className="ws-count" aria-live="polite">{count}</span><span className="ws-tool-rule" /><button type="button" role="switch" aria-checked={showPath} onClick={() => setShowPath(previous => !previous)}><span className={`ws-path-swatch${showPath ? '' : ' is-off'}`} />Answer path</button><span className="ws-tool-rule" /><button type="button" onClick={() => setReplayKey(previous => previous + 1)}><Icon name="replay" size={14} />Replay</button><button type="button" aria-label="Fit to screen" title="Fit to screen" onClick={() => stageRef.current?.querySelector('[data-canvas-scroll]')?.scrollTo({ left: 0, top: 0, behavior: 'smooth' })}><Icon name="fit" /></button></div></div>
-        {view === 'board' && <BoardView {...graphProps} />}{view === 'lanes' && <LanesView {...graphProps} />}{isTimeline && <TimelineView {...data.timeline} selectedId={selectedEvent} onSelect={setSelectedEvent} showPath={showPath} phase={phase} />}
-        {done && (isTimeline ? <section className="ws-event-inspector" aria-label="Selected event"><div><div className="ws-inspector-meta"><i style={{ background: objectColors[eventRow.group] }} />{dateOf(event.d)} · {eventRow.type} · {eventRow.name}</div><h2>{event.label}</h2><p>{event.note}</p><div className="ws-event-facts">Evidence {event.ev} · {event.inf ? 'Inferred' : 'Confirmed'} · {eventRow.name}</div></div><div className="ws-event-actions"><h3>ACTIONS ON {eventRow.type}</h3>{actionButtons()}<div className="ws-action-note">Actions are queued locally in this demo.</div></div></section> : <section className="ws-object-inspector" aria-label="Selected object"><div className="ws-inspector-top"><span className="ws-inspector-meta"><i style={{ background: objectColors[object.group] }} />{object.type}</span><span className={`ws-confidence ${object.conf === 'INFERRED' ? 'is-inferred' : ''}`}>{object.conf}</span></div><h2>{object.value}</h2><p>{object.note}</p><h3>PROPERTIES</h3><dl>{object.props.map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}</dl><h3>ACTIONS</h3>{actionButtons()}<div className="ws-action-note">Evidence {object.src} · Actions are queued locally.</div></section>)}
+        {view === 'board' && <BoardView {...graphProps} />}{view === 'lanes' && <LanesView {...graphProps} />}{view === 'overview' && <ClaimOverview graph={overview} onSelect={selection => { if (!selection) setInspectorOpen(false); else if (selection.kind === 'node' && data.objects[selection.id]) selectObject(selection.id); else if (selection.kind === 'edge') { const link = data.links.find(item => item.id === selection.id); if (link) selectObject(link.source); } }} />}
+        {done && inspectorOpen && <section ref={inspectorRef} className="ws-object-inspector" aria-label="Selected object"><button ref={inspectorCloseRef} type="button" className="ws-inspector-close" aria-label="상세 닫기" onClick={() => setInspectorOpen(false)}><Icon name="close" size={16} /></button><div className="ws-inspector-top"><span className="ws-inspector-meta"><i style={{ background: objectColors[object.group] }} />{object.type}</span><span className={`ws-confidence ${object.conf === 'INFERRED' ? 'is-inferred' : ''}`}>{object.conf}</span></div><h2>{object.value}</h2><p>{object.note}</p><h3>PROPERTIES</h3><dl>{object.props.map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}</dl><h3>ACTIONS</h3>{actionButtons()}<div className="ws-action-note">Evidence {object.src} · Actions are queued locally.</div></section>}
       </section>
     </div>
     <div className={`ws-toast${notice ? ' is-visible' : ''}`} role="status" aria-live="polite">{notice}</div>

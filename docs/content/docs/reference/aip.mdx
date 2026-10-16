@@ -1,0 +1,22 @@
+---
+title: 이전 Foundry AIP 어댑터
+description: 저장소에 보존된 이전 AIP 모듈의 위치와 현재 분석 경로와의 관계.
+---
+
+<Callout title="현재 기본 분석 경로">
+현재 홈과 서버는 온톨로지 설계·표 데이터 변환·Codex 문서 분석·선택적 Jev 판정을 사용합니다. Foundry 환경 변수는 필요하지 않으며 예전 `/api/aip/status`, `/api/graphs/generate`는 현재 제품 API에 연결되어 있지 않습니다.
+</Callout>
+
+## 남아 있는 모듈
+
+`server/aip.ts`는 이전 Foundry 호환 API 어댑터입니다. 질문·첨부 본문을 모델에 전달하고 응답 후보를 보정한 뒤 입력 자료로 출처를 다시 구성하여 `parseGraphDocument`로 검증하는 코드를 보존합니다.
+
+`origin: "aip"`는 기존 그래프를 읽기 위한 유효한 작성 경로로 남아 있습니다. 새로 파일을 가져오면 현재 가져오기 경로에서 `origin: "imported"`로 저장합니다.
+
+## 현재 문서로 이동
+
+- [자료 구조화](/docs/algorithms/extraction): 현재 온톨로지 기반 분석 알고리즘
+- [HTTP API](/docs/reference/api): 현재 업로드·작업·케이스·온톨로지 요청
+- [로컬 개발](/docs/development/local): 설치, 로그인과 실행
+
+이전 구현과 테스트는 [server/aip.ts](https://github.com/d4d-cydf/Cluevia/blob/main/server/aip.ts), [server/aip.test.ts](https://github.com/d4d-cydf/Cluevia/blob/main/server/aip.test.ts)에서 확인할 수 있습니다.

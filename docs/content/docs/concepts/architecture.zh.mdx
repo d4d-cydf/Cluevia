@@ -1,0 +1,53 @@
+---
+title: "应用架构"
+description: "浏览器分析请求、服务器任务、SQLite 存储与整合案例渲染之间的职责划分。"
+---
+
+Cluevia 由 React 界面、Node API 服务器及 SQLite 存储组成。文档网站是位于 `docs/` 的独立 Next.js 与 Fumadocs 包，可静态部署。
+
+## 处理层 [#처리-계층]
+
+| 层次 | 实施 | 角色 |
+| --- | --- | --- |
+| 输入请求 | `HomeScreen.tsx` | 问题/数据/确认问题/分析范围 |
+| HTTP | `server/product-api.ts` | 认证、上传、任务、图与本体 API |
+| 运行任务 | `server/jobs.ts` | 排队，进展，取消和恢复 |
+| 本体设计 | `server/ontology-planner.ts` | 根据资料概况和用户意图创建定义与映射 |
+| 资料处理 | `server/generic-ingest.ts`, `server/analysis-pipeline.ts` | 表格转换、文档抽取、Jev 判定与缓存 |
+| 验证与存储 | `server/ontology.ts`, `server/ontology-store.ts` | 原文依据核查、对象存储与主张图 |
+| 案例整合 | `server/analysis-case.ts` | 连接同一操作的记录和存储物体 |
+| 屏幕计算 | `GraphRenderer.tsx`, `graph-exploration.ts` | 搜索范围和图表坐标 |
+
+设计与文档抽取使用 Codex；若配置了 Jev，则由其参与受限范围内的判定。旧版 Foundry AIP 模块仍保留，但已不是当前首页和 API 的默认执行路径。
+
+## 分析任务的生命周期 [#분석-작업의-수명]
+
+```text
+범위 확인 → 원문 업로드 → queued → running → 완료 / 실패 / 취소
+                                       │
+                                       └→ 구간별 검증·저장 → 화면 갱신
+```
+
+运行和等待中的任务总数最多为 5，任务按顺序执行。任务内部的抽取工作器并发度是另一项设置。失败、取消或重启后，可从已保存的检查点继续处理剩余区段。
+
+仅输入问题的任务只保存本体，不生成实际图。已完成的局部结果会在整个任务结束前显示于分析界面。
+
+## 存储层 [#저장-계층]
+
+| 位置 | 内容 |
+| --- | --- |
+| 服务器数据目录，默认 `.cluevia/` | SQLite、上传原文、任务与记录、本体、图和证据 |
+| 浏览器 IndexedDB 与标签页草稿 | 分析开始前暂存请求和附件副本 |
+| 浏览器 `localStorage`  | 手动卡位，屏幕状态，明确选择的浏览器保存图表 |
+
+由于默认存储是服务器，其他连接到同一服务器的浏览器也可查看保存的图表。 它是一个单一的共享工作空间，不提供每个用户的数据分离。
+
+## 它的运行方式 [#실행-방식]
+
+`npm run dev` 与 `npm run preview` 在 Vite 中接入产品 API。执行 `npm run build` 后，`npm start` 由 Node 服务器同时提供构建后的界面与 API。避免多个服务器同时使用同一数据目录。
+
+仅静态部署 `dist/` 不会运行服务器任务或存储 API。文档产物 `docs/out/` 则可以不依赖 API，以静态方式提供。具体范围见[部署范围](/zh/docs/development/deployment)。
+
+## 算法界限 [#알고리즘-경계]
+
+抽取结果的含义见[资料结构化](/zh/docs/algorithms/extraction)，原文与引用的有效性见[数据验证](/zh/docs/algorithms/validation)，坐标与显示集合见[图布局](/zh/docs/algorithms/board-layout)和[探索与缓存](/zh/docs/algorithms/exploration)。

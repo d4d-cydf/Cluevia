@@ -83,9 +83,9 @@ test('sidebar groups existing analysis parts as cases and includes saved graphs 
   await expect(completedCase).toContainText('3');
   await expect(sidebar.locator(`a[href="/analysis/${jobs[1].id}"]`)).toContainText(jobs[1].question);
   await expect(sidebar.locator(`a[href="/analysis/${jobs[2].id}"]`)).toContainText(jobs[2].question);
-  for (const part of partialGraphs) await expect(sidebar.locator(`a[href="/case/${part.id}/board"]`)).toHaveCount(0);
+  for (const part of partialGraphs) await expect(sidebar.locator(`a[href="/case/${part.id}/overview"]`)).toHaveCount(0);
   await expect(sidebar.locator('a[href^="/case/sidebar-import-"]')).toHaveCount(11);
-  await expect(sidebar.locator('a[href="/case/sidebar-import-11/board"]')).toContainText('보관된 자료 11');
+  await expect(sidebar.locator('a[href="/case/sidebar-import-11/overview"]')).toContainText('보관된 자료 11');
   await expectNoOverflow(page);
 });
 
@@ -109,12 +109,12 @@ test('desktop sidebar toggle sits before the logo, searches cases, and keeps the
   }, { message: 'The desktop sidebar begins below the full-width header' }).toBeGreaterThanOrEqual(-1);
   const search = sidebar.getByRole('searchbox');
   await search.fill('보관된 자료 11');
-  const target = sidebar.locator('a[href="/case/sidebar-import-11/board"]');
+  const target = sidebar.locator('a[href="/case/sidebar-import-11/overview"]');
   await expect(target).toBeVisible();
   await expect(sidebar.locator(`a[href="/analysis/${jobs[0].id}"]`)).toHaveCount(0);
   await target.click();
-  await expect(page).toHaveURL('/case/sidebar-import-11/board');
-  await expect(page.getByRole('button', { name: 'Customer: Alex', exact: true })).toBeVisible();
+  await expect(page).toHaveURL('/case/sidebar-import-11/overview');
+  await expect(page.getByRole('region', { name: '분석 결과 요약', exact: true })).toBeVisible();
   await expect(target).toHaveAttribute('aria-current', 'page');
   await page.getByRole('button', { name: '사이드바 닫기', exact: true }).click();
   await expect(sidebar).not.toBeVisible();
@@ -127,6 +127,62 @@ test('desktop sidebar toggle sits before the logo, searches cases, and keeps the
   await openSidebar(page);
   await expect(page.getByRole('region', { name: 'Galápagos · 2017: board view', exact: true })).toBeVisible();
   await expectNoOverflow(page);
+});
+
+test('one sidebar switches between case chat and archive without losing the draft or selected mode', async ({ page }) => {
+  await page.goto(`/analysis/${jobs[0].id}`);
+  const sidebar = page.locator('#cluevia-case-sidebar');
+  await expect(sidebar).toBeVisible();
+  await expect(page.locator('aside')).toHaveCount(1);
+  const draft = sidebar.getByRole('textbox', { name: '케이스에 질문', exact: true });
+  await expect(draft).toBeVisible();
+  await draft.fill('두 자료가 같은 고객을 가리키는지 확인해줘');
+  await draft.evaluate(element => element.setAttribute('data-retained-draft', 'yes'));
+  await expect(sidebar.getByRole('link', { name: '새 케이스', exact: true })).toBeVisible();
+  await sidebar.getByRole('button', { name: '케이스 보관함으로 전환', exact: true }).click();
+  await expect(sidebar.getByRole('heading', { name: '케이스 보관함', exact: true })).toBeVisible();
+  await expect(sidebar.getByRole('searchbox', { name: '케이스 검색', exact: true })).toBeVisible();
+  await expect(sidebar.locator('.case-sidebar-panel')).toBeHidden();
+  await expect(sidebar.locator('textarea[data-retained-draft="yes"]')).toHaveValue('두 자료가 같은 고객을 가리키는지 확인해줘');
+  await page.evaluate(() => window.dispatchEvent(new Event('cluevia:cases-changed')));
+  await expect(sidebar.getByRole('heading', { name: '케이스 보관함', exact: true })).toBeVisible();
+  await sidebar.getByRole('button', { name: '현재 케이스로 전환', exact: true }).click();
+  await expect(draft).toBeVisible();
+  await expect(draft).toHaveValue('두 자료가 같은 고객을 가리키는지 확인해줘');
+  await expect(draft).toHaveAttribute('data-retained-draft', 'yes');
+  await page.getByRole('button', { name: '사이드바 닫기', exact: true }).click();
+  await expect(sidebar).toBeHidden();
+  await page.getByRole('button', { name: '사이드바 열기', exact: true }).click();
+  await expect(draft).toHaveValue('두 자료가 같은 고객을 가리키는지 확인해줘');
+  await sidebar.getByRole('link', { name: '새 케이스', exact: true }).click();
+  await expect(page).toHaveURL('/');
+  await expect(sidebar.getByRole('heading', { name: '케이스 보관함', exact: true })).toBeVisible();
+  await sidebar.locator(`a[href="/analysis/${jobs[0].id}"]`).click();
+  await expect(page).toHaveURL(`/analysis/${jobs[0].id}`);
+  await expect(sidebar.getByRole('button', { name: '케이스 보관함으로 전환', exact: true })).toBeVisible();
+  await expect(draft).toBeVisible();
+  await expectNoOverflow(page);
+});
+
+test('pending analysis hands off to the graph without resetting archive mode or the closed sidebar', async ({ page }) => {
+  let ready = false;
+  await page.route(`**/api/jobs/${jobs[0].id}`, route => route.fulfill({ json: { job: ready ? jobs[0] : {
+    ...jobs[0], status: 'running', stage: 'designing', message: '객체 유형과 관계를 설계하고 있습니다.', graphIds: [], graphId: undefined, completedChunks: 0,
+  } } }));
+  await page.goto(`/analysis/${jobs[0].id}`);
+  const sidebar = page.locator('#cluevia-case-sidebar');
+  await expect(sidebar.getByRole('button', { name: '케이스 보관함으로 전환', exact: true })).toBeVisible();
+  await sidebar.getByRole('button', { name: '케이스 보관함으로 전환', exact: true }).click();
+  await expect(sidebar.getByRole('heading', { name: '케이스 보관함', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '사이드바 닫기', exact: true }).click();
+  ready = true;
+  await expect(page.getByRole('region', { name: '분석 결과 요약', exact: true })).toBeVisible();
+  await expect(sidebar).toBeHidden();
+  await page.getByRole('button', { name: '사이드바 열기', exact: true }).click();
+  await expect(sidebar.getByRole('heading', { name: '케이스 보관함', exact: true })).toBeVisible();
+  await expect(sidebar.getByRole('searchbox', { name: '케이스 검색', exact: true })).toBeVisible();
+  await sidebar.getByRole('button', { name: '현재 케이스로 전환', exact: true }).click();
+  await expect(sidebar.getByRole('textbox', { name: '케이스에 질문', exact: true })).toBeVisible();
 });
 
 test.describe('mobile sidebar', () => {
@@ -144,10 +200,35 @@ test.describe('mobile sidebar', () => {
     await expect(sidebar).not.toBeVisible();
     await expectNoOverflow(page);
     await openSidebar(page);
-    await sidebar.locator('a[href="/case/sidebar-import-1/board"]').click();
-    await expect(page).toHaveURL('/case/sidebar-import-1/board');
+    await sidebar.locator('a[href="/case/sidebar-import-1/overview"]').click();
+    await expect(page).toHaveURL('/case/sidebar-import-1/overview');
     await expect(sidebar).not.toBeVisible();
-    await expect(page.getByRole('button', { name: 'Customer: Alex', exact: true })).toBeVisible();
+    await expect(page.getByRole('region', { name: '분석 결과 요약', exact: true })).toBeVisible();
+    await expectNoOverflow(page);
+  });
+
+  test('current case starts with graph visible and traps focus only in the active sidebar mode', async ({ page }) => {
+    await page.goto(`/analysis/${jobs[0].id}`);
+    const sidebar = page.locator('#cluevia-case-sidebar');
+    await expect(page.getByRole('region', { name: '분석 결과 요약', exact: true })).toBeVisible();
+    await expect(sidebar).toBeHidden();
+    await openSidebar(page);
+    const mode = sidebar.getByRole('button', { name: '케이스 보관함으로 전환', exact: true });
+    await expect(mode).toBeVisible();
+    const draft = sidebar.getByRole('textbox', { name: '케이스에 질문', exact: true });
+    await draft.fill('원문 근거 확인');
+    const send = sidebar.getByRole('button', { name: /질문 보내기/ });
+    await expect(send).toBeEnabled();
+    await mode.focus();
+    await page.keyboard.press('Shift+Tab');
+    await expect(send).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(mode).toBeFocused();
+    await mode.click();
+    await expect(sidebar.getByRole('searchbox')).toBeVisible();
+    await sidebar.getByRole('button', { name: '현재 케이스로 전환', exact: true }).click();
+    await expect(draft).toHaveValue('원문 근거 확인');
+    await expect(sidebar.getByRole('link', { name: '새 케이스', exact: true })).toBeVisible();
     await expectNoOverflow(page);
   });
 });

@@ -1,0 +1,12 @@
+{
+  "title": "核心算法：规范与方法",
+  "pages": [
+    "overview",
+    "model",
+    "gap-find",
+    "confidence",
+    "gap-fill",
+    "worked-example",
+    "implementation"
+  ]
+}

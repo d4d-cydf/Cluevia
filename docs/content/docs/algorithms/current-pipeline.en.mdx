@@ -1,0 +1,74 @@
+---
+title: "Current Implementation Pipeline"
+description: "From determining the analysis scope to ontology design, data extraction, basis verification, and graph arrangement."
+---
+
+Cluevia extracts **objects, relationships, events, source** from data and displays the same data in Board, Lanes, and Timeline. This document links the inputs and outputs, calculation rules, and limitations of each step with actual implementation.
+
+## overall processing flow [#전체-처리-흐름]
+
+```text
+질문 · 자료 미리보기 → 확인 질문 → 분석 범위 확정
+                                    │
+원본 자료 업로드 ────────────────────┤
+                                    ▼
+                   온톨로지 설계 또는 기존 정의 선택
+                                    │
+                   ┌────────────────┴─────────────────┐
+                   ▼                                  ▼
+            표 데이터 컬럼 매핑                  문서 구간 분석
+            규칙으로 행 변환                  Codex · 선택적 Jev
+                   └────────────────┬─────────────────┘
+                                    ▼
+                    스키마 · 식별 키 · 원문 인용 검증
+                                    ▼
+                    SQLite 저장 → 분석 기록별 결과 통합
+                                    ▼
+                       탐색 범위 선택 → 좌표 계산
+                         Board · Lanes · Timeline
+```
+
+We only design ontology structures with questions, without creating any actual objects or relationships. The completed graph JSON and public examples are opened by inspecting the graph contract without model extraction.
+
+## Algorithm reading order [#알고리즘-읽는-순서]
+
+| step | Input → Output | key questions |
+| --- | --- | --- |
+| [1. Data structuring](/en/docs/algorithms/extraction) | Request/original text → Verified analysis record | How do I divide and process tables and documents? |
+| [2. Data verification](/en/docs/algorithms/validation) | Extraction result JSON → valid graph | How does checking quoted text differ from validating references? |
+| [3. Graph placement](/en/docs/algorithms/board-layout) | Object·Relationship → Card Coordinates | How do you combine reaction force, spring, and collision separation? |
+| [4. Relationship lines and labels](/en/docs/algorithms/edge-routing) | Card coordinates → curve/label | How are the paths of general relationships and self-relationships different? |
+| [5. Time axis arrangement](/en/docs/algorithms/timeline) | Time/period of event → Coordinates/track | How do you align perspectives and divide overlapping events? |
+| [6. Search and cache](/en/docs/algorithms/exploration) | Search/Select → Partial graph to display | How do you preserve the entire data and limit the amount displayed? |
+
+## Model judgment and code calculation [#모델-판단과-코드-계산]
+
+| step | Responsible for | coverage |
+| --- | --- | --- |
+| Ontology design and document analysis | Type, attribute, relationship and basis candidate extraction | This is model judgment and results may vary. |
+| Structured data conversion | Convert rows with validated column mapping | Do not call the model for each mapped row |
+| Extraction Verification | Type, attribute, identification key, accurate original citation inspection | The existence of the citation does not prove the truth of claim itself. |
+| Graph verification | Check fields, sizes, IDs, dates and references | Check structural consistency of data |
+| Navigation/Layout | Mark sets, coordinates, relationship lines and time base calculations | Rules for displaying stored data |
+
+The server stores the original text and analysis records in SQLite and data directories. The graph placement and selection state are calculated in the browser, and the coordinates dragged by the user are saved in the browser.
+
+## Link to implementation [#구현으로-연결하기]
+
+| implementation | role |
+| --- | --- |
+| `server/clarification.ts`, `server/ontology-planner.ts` | Confirmation of analysis scope and ontology design |
+| `server/generic-ingest.ts`, `server/analysis-pipeline.ts` | Data division, mapping, model analysis, cache |
+| `server/ontology.ts`, `src/lib/graph-document.ts` | Extraction basis and graph contract verification |
+| `server/ontology-store.ts`, `server/analysis-case.ts` | Storage, object linking and case integration |
+| `src/lib/graph-exploration.ts` | Expand around selection, search and page selection |
+| `src/components/graph/GraphRenderer.tsx` | Card, relationship line, and time axis placement and rendering |
+
+The documentation is based on the current remote app implementation. Complexity is a value that analyzes the repetitive structure of the code and does not guarantee model processing time or performance on all devices.
+
+<Cards>
+  <Card title={"Read from data structuring"} href="/docs/algorithms/extraction" description={"We examine the scope of analysis and how ontology limits practical extraction."} />
+  <Card title={"Read from the graph layout"} href="/docs/algorithms/board-layout" description={"Followed by initial coordinates, force calculations and collision separation."} />
+  <Card title={"Check the results with an example"} href="/docs/guide/example" description={"View three views of GFW disclosure cases without model linking."} />
+  <Card title={"Find a data contract"} href="/docs/reference/graph-document" description={"Check the format and restrictions for each field of the GraphDocument."} />
+</Cards>

@@ -1,0 +1,94 @@
+---
+title: "Graph Layout"
+description: "Board combines degree ordering, golden-angle initialization, repulsion, springs, and collision separation; Lanes arranges nodes by group."
+---
+
+`boardLayout` and `lanesLayout` in `GraphRenderer.tsx` calculate scene size and card center coordinates from object relationships. The force calculations for the Board below are used for the initial placement, and subsequent results for the same Board are added while preserving the existing coordinates. On-screen distance does not refer to confidence or geographic distance.
+
+## 1. Determine the order by degree [#1-차수로-순서를-정한다]
+
+Board increments the degree of both endpoints of each relationship by 1. Objects are sorted by **descending degree, then by ID using `localeCompare`**. A self-loop adds 2 to the same object's degree but is excluded from subsequent spring calculations.
+
+If there are A–B and A–C, the degree of A is 2, and B and C are 1, so initialize from A. Tie comparisons may be affected by the string sorting rules of the execution environment.
+
+## 2. Expand the initial coordinates to the golden angle. [#2-황금각으로-초기-좌표를-펼친다]
+
+For object number `V`, sorting sequence number `i`, we start as follows:
+
+```text
+columns = max(3, ceil(sqrt(V × 1.4)))
+width   = max(940, columns × 240 + 80)
+height  = max(580, ceil(V / columns) × 160 + 100)
+angle   = i × 2.399963229728653
+radius  = sqrt((i + 0.6) / max(1, V))
+x       = width / 2  + cos(angle) × radius × (width / 2 - 120)
+y       = height / 2 + sin(angle) × radius × (height / 2 - 70)
+```
+
+Spread out from the center without random numbers. Objects with large degrees are initially located close to the center.
+
+## 3. Calculate forces and collisions 150 times [#3-힘과-충돌을-150번-계산한다]
+
+| calculation | rules |
+| --- | --- |
+| Repulsion force for every pair of objects | Distance `d = max(1, hypot(dx, dy))`, Size `min(24, 11000 / d²)` |
+| Spring by relationship | The difference between the center distance and 255px multiplied by `0.012` |
+| central force | Multiply the horizontal and vertical differences to the center by `0.004`, respectively. |
+| coordinate movement | Limit the force to ±16px per axis and anchor it within the scene boundaries |
+
+If the coordinate difference is 0, use `0.01` for that axis. If there are multiple relationships, springs are added to each one. The coordinate range is horizontal `115..width-115` and vertical `70..height-70`.
+
+The cards are 182×74px and collision checking adds 28px spacing per axis.
+
+```text
+overlapX = 182 + 28 - abs(xA - xB)
+overlapY = 74  + 28 - abs(yA - yB)
+```
+
+If both values are positive, choose the axis with the smaller overlap, move both cards by 51% of the overlap distance, and constrain them back into the boundary. This is done once after each force calculation, and there are no separate collision-only iterations after 150. Due to bounds and iteration upper bounds, it does not guarantee complete non-overlap on all inputs.
+
+## Large input and search range [#큰-입력과-탐색-범위]
+
+`boardLayout` itself has a branch that uses a group-by-group grid when the number of objects exceeds 200. Groups are placed in the order in which they first appeared, and objects within the group maintain their original order and are spaced at intervals of 250px horizontally and 135px vertically.
+
+Currently, the renderer first creates [Subgraph for exploration](/en/docs/algorithms/exploration) if one of the following occurs: **Exceeds 200 objects, Exceeds 1,000 relationships, Exceeds 500 events**. Since the default object display upper limit is 200, force calculations are applied to the initial Board placement in this subgraph. Page limits for grid branches and actual screens are in different tiers.
+
+For small graphs within the three upper bounds, we pass the original graph directly without calling `exploreGraph`. No unnecessary navigation projections are calculated for each selection or search, and highlighting and dimming of search results is handled by the canvas.
+
+## Lanes: Convert groups into columns [#lanes-그룹을-열로-바꾼다]
+
+Create columns in the order `groups`, spacing each group of objects 124px apart in their original arrangement order. The function itself also keeps empty groups as columns. The navigation projection of a large graph preemptively excludes groups that have no objects to display.
+
+```text
+width     = max(900, 그룹 수 × 254 + 40)
+laneWidth = (width - 40) / max(1, 그룹 수)
+x         = 20 + laneWidth × (열 번호 + 0.5)
+y         = 140 + 행 번호 × 124
+```
+
+This is not automatic cluster detection, but placement using `node.group` of the input.
+
+## Updates and manual positioning [#갱신과-수동-배치]
+
+The base Board and Lanes layouts are recalculated when `topologyKey` or the view type changes. The key preserves array order and includes the graph ID, object IDs and groups, relationship endpoint IDs, and group IDs. Changes to names, descriptions, properties, or processing progress alone do not trigger a new layout; changes in array order do. Timeline is calculated separately from events and dates.
+
+While maintaining Boards with the same graph ID, the new display set also preserves the previous coordinates of the remaining objects. Even if some existing objects are missing, the remaining objects are not relocated from the beginning. The coordinates of the missing ID are excluded from the current scene, and **only newly arrived objects** are placed in the following order.
+
+1. Gather the occupied positions of existing cards. Cards dragged by the user use manual coordinates.
+2. Among objects connected to the new object, choose the first one with coordinates as the reference point, giving its manual coordinates priority when present.
+3. Six candidates around the reference point are examined in order. Create candidates at intervals of 230px wide and 125px tall, and exclude candidates whose ranges of 210px wide and 105px tall overlap with the existing occupied position.
+4. If there are no seats nearby or no reference point, it finds an empty location in a 5-column grid. New cards you place also count towards collision checking for the next card and increase the scene size.
+
+Afterwards, the manual coordinates corresponding to the current graph are finally overwritten and applied. Updates on the same Board do not repeat the entire force calculation. When you switch to a different graph or Lanes, it calculates the default placement for that view. Because manual coordinates are user-specified values, the rule does not guarantee non-overlapping for all placements.
+
+Drag coordinates are stored in `localStorage` for each graph ID/view. It does not change the graph content or the server's object identification rules.
+
+## Complexity and Verification [#복잡도와-검증]
+
+The initial placement of the small board is `O(V log V + 150(V² + E))` with alignment and 150 pairwise force/collision tests, with additional space at `O(V + E)`. The grid branch of the large input is `O(V)`, and the Lanes that filter objects per group are `O(GV)`. Updates incur costs of generating structure keys, checking existing coordinates and neighbor lists, and searching for candidate locations for new objects. Since each candidate check traverses the occupied location, the cost varies depending on the number of additional objects and the occupied state of the grid.
+
+- [src/components/graph/GraphRenderer.tsx](https://github.com/d4d-cydf/Cluevia/blob/main/src/components/graph/GraphRenderer.tsx): Drag with `boardLayout`, `lanesLayout`, `priorScene`
+- [tests/analysis-improvements.spec.ts](https://github.com/d4d-cydf/Cluevia/blob/main/tests/analysis-improvements.spec.ts): Display range of large graph
+- [tests/graph.spec.ts](https://github.com/d4d-cydf/Cluevia/blob/main/tests/graph.spec.ts): Graph screen regression test
+
+Next step: [Relationship lines and labels](/en/docs/algorithms/edge-routing).

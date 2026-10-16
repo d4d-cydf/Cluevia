@@ -1,5 +1,14 @@
 import type { RelationClaim, ClaimReview } from './claims';
 import type { AnalysisBrief } from './clarification';
+import type { GapType } from './why-not';
+
+/** View-only annotations. Never persisted as extracted facts or evidence. */
+export interface GraphDecorations {
+  centerNodeId?: string;
+  runKey?: string;
+  nodes: Record<string, { kind: 'goal' | 'gap'; gapType?: GapType; state?: 'idle' | 'checking' | 'found' | 'resolved'; revealIndex?: number; delayMs?: number; durationMs?: number }>;
+  edges: Record<string, { gapType: GapType; revealIndex?: number; delayMs?: number; durationMs?: number }>;
+}
 
 export interface GraphSource {
   id: string;

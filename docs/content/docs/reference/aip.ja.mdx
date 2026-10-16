@@ -1,0 +1,22 @@
+---
+title: "旧Foundry AIPアダプター"
+description: "リポジトリに保存されている以前のAIPモジュールの場所と現在の分析パスとの関係。"
+---
+
+<Callout title={"現在の基本分析パス"}>
+現在のホームとサーバーは、オントロジー設計・表データ変換・Codex文書分析・選択的Jev判定を使用しています。 Foundry 環境変数は不要で、旧 `/api/aip/status`、`/api/graphs/generate` は現在製品 API にリンクされていません。
+</Callout>
+
+## 残っているモジュール [#남아-있는-모듈]
+
+`server/aip.ts`は以前のFoundry互換APIアダプタです。質問・添付本文をモデルに渡し、応答候補を補正した後、入力資料として出典を再構成し、`parseGraphDocument`で検証するコードを保存します。
+
+`origin: "aip"`は、既存のグラフを読み取るための有効な作成パスのままです。新規ファイルをインポートすると、現在のインポートパスで`origin: "imported"`として保存されます。
+
+## 現在の文書に移動 [#현재-문서로-이동]
+
+- [データ構造化](/ja/docs/algorithms/extraction)：現在のオントロジーベースの分析アルゴリズム
+- [HTTP API](/ja/docs/reference/api)：現在アップロード・作業・ケース・オントロジーリクエスト
+- [ローカル開発](/ja/docs/development/local)：インストール、ログイン、実行
+
+以前の実装とテストは、[server/aip.ts](https://github.com/d4d-cydf/Cluevia/blob/main/server/aip.ts)、[server/aip.test.ts](https://github.com/d4d-cydf/Cluevia/blob/main/server/aip.test.ts) にあります。

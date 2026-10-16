@@ -1,0 +1,147 @@
+---
+title: "Gap Find: Evaluation Rules"
+description: "A step-by-step specification to construct candidate evidence tree with actual evidence and diagnose evidence gap by checking suitability, event matching, and duplication."
+---
+
+The purpose of Gap Find is to evaluate supporting path that can be constructed from current data and explain why each path should be maintained or excluded. What is excluded at this time is the candidate combination for a specific claim and not the original data itself. Therefore, the failure of one alternative, the absence of supporting path of the entire goal, and the incomplete evaluation must be preserved in different states. The procedure below embodies this principle with input and decision rules for each step.
+
+<ResearchDiagram kind="gates" number="F1" />
+
+## 1-1 · Fixed target and incident scope [#1-1--목표와-사건-범위-고정]
+
+Change the question to a testable claim and set the target, action, time, place, and conditions. Do not replace the conclusion requested by the user with a weaker conclusion. “Do you own it” and “Is there an article saying you own it” are different claim.
+
+Record the items and decision criteria needed to assess the target in `EvidenceNeed`. Distinguish the time of the event from the publication time of the material, and preserve unknown fields as unknown. If the target or its logical connections are ambiguous, refine the logical specification before diagnosing a shortage of evidence.
+
+## Create 1-2 · Why-not Tree [#1-2--why-not-tree-생성]
+
+LLM proposes lower-level claim·evidence requirement·operator candidates. The code checks for IDs, references, cycles, empty logical nodes, and required requirements. Each internal link requires `inferenceRule`, which explains “why support this parent claim if this child condition is met”.
+
+Do not infer operators from the number of available materials. Retain requirements for which evidence is missing. Normalize NOT_SUPPORT to AND under [the confirmed rule for establishing negative claims](/en/docs/main-algorithm/model).
+
+## 1-3 · Create candidate evidence tree from existing leaf [#1-3--존재하는-leaf로-집합-트리-생성]
+
+The data body or the record section that can be inspected currently exists in snapshot and only leaves with valid references are used. If there is only a URL and no content has been secured, or if file processing has not been completed, it is not considered that actual evidence has been secured.
+
+The set of possible candidates for node `v` is defined as `F(v)`. The set element below is binding, which is linked to the requirement as well as the data ID.
+
+<Equation number="F1" label={"Underlying conditions for candidate composition"} tex={String.raw`F(b)=\{\{b\}\},\qquad F(r_{\mathrm{missing}})=\varnothing`} />
+
+<Equation number="F2" label={"Union of OR and combination of AND"} tex={String.raw`\begin{aligned}F_{\mathrm{OR}}(v)&=\bigcup_{i=1}^{n}F(c_i)\\F_{\mathrm{AND}}(v)&=\left\{\bigcup_{i=1}^{n}w_i\;\middle|\;w_i\in F(c_i)\right\}\end{aligned}`} />
+
+Rules such as AND are applied to the candidate composition of NOT_SUPPORT.
+
+For `AND(OR(a,b), c)`, the candidates are `{a,c}` and `{b,c}`. If c is unavailable, there are no candidates. The presence of a or b does not justify weakening the expression to `AND(a)`.
+
+<WitnessExplorer number="F2" />
+
+<Callout title={"Distinction between empty set and empty candidate"}>
+`∅` means that there are no possible candidates, and `{∅}` means that there is only one candidate that can be established with empty evidence. Do not create `{∅}` in claim where evidence is needed. The programming convention of treating an empty AND as true should not be applied to evidentiary judgments.
+</Callout>
+
+If the root candidate is empty set, `EVIDENCE_MISSING` and the required requirement path are recorded and the evidence chain evaluation of that execution is stopped. Sub-diagnosis can be performed separately, but it is not marked as a candidate for completion after passing the later stages.
+
+If there are too many possible combinations, use lazy generation and upper bounds. When the upper limit is reached, it is `INCOMPLETE` and is not confirmed as “no chain”. Initially, candidates with different requirement satisfaction relationships are not eliminated through simple subset comparison.
+
+## 1-4 · claim support suitability of each data [#1-4--각-자료의-주장-지지-적합성]
+
+For each binding, read the corresponding parent claim and `acceptanceCriteria` and substitute the judgment status of the data. Only `SUPPORTED` passes and the rest are eliminated with reasons. Unreviewed and model errors are recorded as incomplete, distinguishing them from “judged as false.”
+
+| inspection | Example |
+| --- | --- |
+| Is the subject the same as the claim? | Does the material concern order “O-17”, or a different order with a similar name? |
+| Is the strength of the facts presented in the data sufficient? | Did you distinguish between planning/scheduling and actual completion? |
+| Does the original section actually exist? | Is the quotation from the original text and is there no context cut out? |
+| Are the conditions required for the inference rule met? | Aren’t simple encounters assumed to be cargo transfers? |
+| Are negation, speculation, and secondary citations preserved? | Is a reported denial being mistaken for actual absence? |
+
+<Equation number="F3" label={"Candidates who remain after the suitability checkpoint"} tex={String.raw`F_{\mathrm{fit}}(v)=\{w\in F(v)\mid\forall b\in w,\;\operatorname{verdict}(b)=\mathrm{SUPPORTED}\}`} />
+
+Specific event connection tests for target and time are performed separately in 1-5. The reasons for insufficiency already identified in 1-4 are also not lost.
+
+### Propagation of ineligibility decisions according to parent operator [#부모-연산자에-따른-부적격-판정의-전파]
+
+| parents | Handling of ineligible children |
+| --- | --- |
+| AND | All candidates including the child in question are eliminated. Prerequisites remain in the original tree |
+| OR | Only that alternative was eliminated. Continue checking other alternatives. If everyone fails, the parents are also ineligible. |
+| NOT_SUPPORT | Same as AND. Neither missing evidence nor ineligibility establishes a negative claim. |
+
+For each disqualification, record the judgment value, text section, and insufficient request in `EVIDENCE_INSUFFICIENT`. counterevidence remains on the diagnosis and user screens even after it is excluded from the supported candidates.
+
+## 1-5 · candidate evidence tree All events match [#1-5--집합-트리-전체의-사건-일치]
+
+Check whether the materials within one candidate tree concern **the same event or an explicitly specified relationship between events**. Similar names or wording are not sufficient grounds for joining records.
+
+### Incident Metadata Agreement [#사건-메타데이터-계약]
+
+| field | comparison criteria |
+| --- | --- |
+| `entityRefs` | Identifiers identified and their role in the incident. Unconfirmed if only the name matches |
+| `eventType` | Action or relationship type. Distinguish ordering, dispatch, arrival, and receipt. |
+| `occurredAt` or period | Including actual occurrence time and time zone, uncertainty and precision |
+| `locationRefs` | Location ID or specified contain/move relationship |
+| `recordKeys` | Connection keys such as order number, transaction number, etc. |
+| `publishedAt`, `observedAt` | Stored separately from the time of occurrence |
+| `metadataEvidence` | Data/section where you can check field values |
+
+Empty fields estimated by LLM are not filled with confirmed values. Connection rules are managed in versions for each event type.
+
+### Rule type [#규칙-종류]
+
+- `SAME_EVENT`: The required identification key, role, and action are correct, and the rules such as **overall common part** of the time interval must be met.
+- `ORDERED_EVENTS`: The target keys of the preceding and following events must follow and satisfy the specified time sequence. Different events are not viewed at the same time.
+- `SAME_ENTITY`: Even if the event time is different, the defined same object connection rules can be satisfied.
+
+Just because data A–B and B–C overlap, do not assume that all of A–B–C matches. For example, time sections `[1,3]`, `[3,5]`, and `[5,7]` are adjacent to each other, but there is no common time overall.
+
+<EventIntervals number="F3" />
+
+<Equation number="F4" label={"Total intersection of closed time intervals"} tex={String.raw`\bigcap_i [\ell_i,u_i]\ne\varnothing\quad\Longleftrightarrow\quad\max_i\ell_i\le\min_i u_i`} />
+
+This equation is a condition for closed intervals normalized to the same time period and precision. Open boundaries or tolerances are specified separately in the event rules.
+
+| result | processing |
+| --- | --- |
+| `MATCH` | retain the candidate |
+| `MISMATCH` | Excluding candidates `EVENT_MISMATCH`. Records of conflicting fields, expected values, and observed values |
+| `UNKNOWN` | Not confirmed by support chain. Record insufficient metadata as `EVIDENCE_INSUFFICIENT` and put it on hold |
+
+Do not change UNKNOWN to MISMATCH. Only actual discrepancies are described as unconnectable. It does not delete the data itself and may be suitable for other claim· events.
+
+## 1-6 · Parent-level duplicate data inspection [#1-6--부모-단위-중복-자료-검사]
+
+The parent node is taken as a unit of comparison and the overlap of evidence binding is checked below it. LLM determines whether it is the same content that supports the same event/same claim, some overlap, or independent observations.
+
+1. First identify completely identical data with the same content hash, record ID, etc.
+2. Request an LLM decision by providing relevant section/event metadata/circlesource to the remaining candidates of the same parent.
+3. The original text location and reason are requested for the decision, and the code verifies the response structure/reference.
+4. Only `EXACT_DUPLICATE` or `SAME_OBSERVATION` for which evidence has been confirmed are grouped into the same evidence atom.
+5. `PARTIAL_OVERLAP`, `DISTINCT`, and `UNKNOWN` are preserved. Do not arbitrarily remove uncertain duplicates.
+6. Only candidates with the same requirement information are merged into representative candidates. Excluded data is left with `duplicateOf` and the reason.
+
+Representative data are selected using versioned rules such as original text accessibility and section completeness, and ties are determined by stable ID order. Only data with high confidence are left and counterevidence is not deleted.
+
+LLM’s pairwise “similar” decisions are not guaranteed to be transitive. Instead of merging all A·B·C with only A≈B and B≈C, the equality with representative observations is rechecked.
+
+Even after reducing duplication by parent, the confidence calculation of the entire root confirms **shared evidence atoms and source dependencies** across the parent. Global independence is not ensured only by removing local duplicates.
+
+## 1-7·1-8 and final evidence gap [#1-71-8과-최종-공백]
+
+[source provenance and confidence](/en/docs/main-algorithm/confidence) performs lineage tracking, D/E processing, and AND·OR aggregation. If the evaluation is complete and there is no eligible chain leading to the goal, connect `CHAIN_UNKNOWN` to the detailed cause gap.
+
+In this guideline, chain completion is specified as **a state in which the required connections and data qualifications are in place and confidence evaluation is possible**. If the score of the completed chain is weak, it is `TRUST_WEAK`, and `CHAIN_UNKNOWN` is not automatically created in duplicate just because the score is low. This is a rule to maintain the numerical value confidence and connection completeness as separate axes.
+
+## Distinguish between the evidence gap of OR alternatives and the overall conclusion [#or-대안의-공백과-전체-결론의-구분]
+
+If one OR branch is eliminated but another branch supports the goal, the reason for rejection is recorded as `blockingScope=ALTERNATIVE`. It does not indicate that the entire conclusion has been blocked. Conversely, evidence gap in the AND required request can affect ROOT along the upper path.
+
+All reasons for rejection are preserved, but gaps in the same cause/requirement/data/execution version are recorded only once. `CHAIN_UNKNOWN` is a summary of causes and does not replace a specific description of insufficient data.
+
+## Cost and determinism [#비용과-결정성]
+
+The number of candidates can grow exponentially as a product of OR the number of alternatives. Step-by-step pruning, memoization, and delayed evaluation should be used, and the scope of the break should be specified. If the parent has `k` data, the duplicate check of all pairs can create `O(k²)` call candidates, so the comparison targets are first reduced by hash and event conditions.
+
+<Equation number="F5" label={"Number of candidates for exhaustive pairwise comparisons per parent"} tex={String.raw`N_{\mathrm{comparisons}}=\sum_{p}\binom{d_p}{2}`} />
+
+If re-evaluated with the same snapshot·rule·already stored decision, the result of the code should be the same. Since a new call to LLM may result in different results, keep the response and decision versions.

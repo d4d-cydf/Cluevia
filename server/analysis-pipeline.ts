@@ -1,3 +1,6 @@
+import { GraphValidationError } from '../src/lib/graph-document.ts';
+import { recoverExtraction } from './extraction-recovery.ts';
+import { normalizeClaimMetadata } from './claim-metadata.ts';
 import { scopeExclusion } from './analysis-scope.ts';
 import { WorkPool } from './work-pool.ts';
 import { createHash } from 'node:crypto';
@@ -24,10 +27,11 @@ export interface AnalysisMetrics {
   structuredRecords: number; deterministicParts: number; jevRequests: number; jevInputTokens: number;
   codexCalls: number; cacheHits: number; reviewParts: number;
   scopeSkippedParts: number; codexQueueMs: number; codexRunMs: number; jevRoutingMs: number; preparationMs: number; designMs: number; designTimeoutRetries: number; validationRetries: number; timeoutSplits: number;
+  ontologyProfileMs: number; ontologyModelMs: number; ontologyValidationMs: number; ontologyRulesMs: number; ontologyCacheHits: number;
   codexInputTokens: number; codexOutputTokens: number; codexCachedInputTokens: number;
   jevDecisions: number; jevAssistedParts: number; jevFallbackParts: number; codexBatches: number;
 }
-export const emptyMetrics = (): AnalysisMetrics => ({ scopeSkippedParts: 0, codexQueueMs: 0, codexRunMs: 0, jevRoutingMs: 0, preparationMs: 0, designMs: 0, designTimeoutRetries: 0, validationRetries: 0, timeoutSplits: 0, codexInputTokens: 0, codexOutputTokens: 0, codexCachedInputTokens: 0, structuredRecords: 0, deterministicParts: 0, jevRequests: 0, jevInputTokens: 0, codexCalls: 0, cacheHits: 0, reviewParts: 0, jevDecisions: 0, jevAssistedParts: 0, jevFallbackParts: 0, codexBatches: 0 });
+export const emptyMetrics = (): AnalysisMetrics => ({ scopeSkippedParts: 0, codexQueueMs: 0, codexRunMs: 0, jevRoutingMs: 0, preparationMs: 0, designMs: 0, ontologyProfileMs: 0, ontologyModelMs: 0, ontologyValidationMs: 0, ontologyRulesMs: 0, ontologyCacheHits: 0, designTimeoutRetries: 0, validationRetries: 0, timeoutSplits: 0, codexInputTokens: 0, codexOutputTokens: 0, codexCachedInputTokens: 0, structuredRecords: 0, deterministicParts: 0, jevRequests: 0, jevInputTokens: 0, codexCalls: 0, cacheHits: 0, reviewParts: 0, jevDecisions: 0, jevAssistedParts: 0, jevFallbackParts: 0, codexBatches: 0 });
 export interface AnalysisOptions { jev?: JevConfig; runJev?: typeof runJevExtraction; ontologyPlanning?: boolean; runOntologyJev?: typeof runOntologyJev; assessJevDecisions?: typeof assessJevDecisions }
 export type AnalysisUploads = Pick<EvidenceUploads, 'get' | 'getChunk'> & Partial<Pick<EvidenceUploads, 'getChunkRange'>>;
 export interface AnalysisPart {
@@ -115,6 +119,10 @@ export class AnalysisPipeline {
     };
     const textParts = async (document: EvidenceDocument, records = 0, reviewPart?: AnalysisPart, sourceName = document.name) => {
       const limit = definition ? 8_000 : this.config.apiKey ? 6000 : 30_000;
+      // Every excerpt belongs to the same original source. Hash that original once,
+      // rather than re-reading the complete document for each bounded excerpt.
+      const identityScope = document.identityScope ?? `inline-${digest(definition ? `${document.id}\n${document.name}\n${document.text}` : document.text)}`;
+      const splitId = `text-${digest(document.id).slice(0, 24)}`;
       let start = 0; let index = 0;
       while (start < document.text.length) {
         let end = Math.min(start + limit, document.text.length);
@@ -126,8 +134,8 @@ export class AnalysisPipeline {
         index++;
         const split = start > 0 || end < document.text.length;
         await append({ ...(reviewPart?.semanticReview ? { semanticReview: true, semanticContext: reviewPart.semanticContext, decisionSource: reviewPart.decisionSource } : {}), documents: [{ ...document,
-          ...(split ? { id: `text-${digest(document.id).slice(0, 24)}-${index}`, name: `${document.name.slice(0, 250)} · section ${index}` } : {}),
-          identityScope: document.identityScope ?? `inline-${digest(definition ? `${document.id}\n${document.name}\n${document.text}` : document.text)}`,
+          ...(split ? { id: `${splitId}-${index}`, name: `${document.name.slice(0, 250)} · section ${index}` } : {}),
+          identityScope,
           text: document.text.slice(start, end),
         }], records: index === 1 ? records : 0 }, sourceName);
         if (end === document.text.length) break;
@@ -188,7 +196,7 @@ export class AnalysisPipeline {
    * Staging parts remain invisible until every original part has been carried into the new plan. */
   private async prepareDecisions(jobId: string, total: number, definition: OntologyDefinition, signal: AbortSignal, callbacks: PreparationCallbacks): Promise<number> {
     if (!this.config.apiKey) {
-      callbacks.routing?.('Jev API 키가 없어 표는 코드로 변환하고, 의미 분석은 Codex가 처리합니다.');
+      callbacks.routing?.('Jev API 키가 없어 표는 코드로 변환하고, 의미 분석은 AI가 처리합니다.');
       return total;
     }
     const stagedJob = `${jobId}:routing`;
@@ -288,7 +296,7 @@ export class AnalysisPipeline {
         this.db.exec('COMMIT');
       } catch (error) { this.db.exec('ROLLBACK'); throw error; }
       callbacks.routing?.(assessed
-        ? `반복 판정 ${assessed}구간 · ${batchedRows}구간 묶음 분석 배정 · ${assessed - batchedRows}구간 개별 분석 배정. 원문 전체를 Codex가 확인합니다.`
+        ? `반복 판정 ${assessed}구간 · ${batchedRows}구간 묶음 분석 배정 · ${assessed - batchedRows}구간 개별 분석 배정. 원문 전체를 AI가 확인합니다.`
         : '이번 자료에는 반복 판정 대상 서술 구간이 없습니다. 표는 코드로 변환하고, 적용 가능한 단순 관계 판정은 추출 단계에서 처리합니다.');
       return staged;
     } finally { stop.abort(); await Promise.allSettled(pending.values()); this.db.prepare('DELETE FROM analysis_parts WHERE job_id=?').run(stagedJob); }
@@ -385,11 +393,11 @@ export class AnalysisPipeline {
     const semanticContext = part.semanticReview && definition ? reviewContext(part, canonical, definition) : undefined;
     const decisionContext = part.decisions?.length ? decisionHints(part, canonical) : undefined;
     const batch = Boolean(part.semanticReview && documents.length > 1);
-    const key = digest(JSON.stringify({ version: CACHE_VERSION + '-claims-v1', ontology: definition ? { ...definition, id: undefined } : undefined, ontologyJevVersion: ONTOLOGY_JEV_VERSION, jevVersion: JEV_EXTRACTION_VERSION, documents: canonical.documents,
+    const key = digest(JSON.stringify({ version: CACHE_VERSION + '-associations-v2', ontology: definition ? { ...definition, id: undefined } : undefined, ontologyJevVersion: ONTOLOGY_JEV_VERSION, jevVersion: JEV_EXTRACTION_VERSION, documents: canonical.documents,
       semanticContext, decisionContext, batch,
       ...(analysisBrief ? { scopedRequest: { version: 'confirmed-analysis-brief-v1', question, analysisBrief } } : {}),
       provider: this.config.apiKey ? 'jev' : 'codex', model: this.config.model, confidence: this.config.minConfidence,
-      fallback: this.config.fallback, codexModel: effectiveCodexConfig(this.codex).model, codexEffort: effectiveCodexConfig(this.codex).effort }));
+      fallback: this.config.fallback, modelProvider: this.codex.provider, codexModel: effectiveCodexConfig(this.codex).model, codexEffort: effectiveCodexConfig(this.codex).effort }));
     let result: AnalysisResult; let cacheHit = false;
     const row = this.db.prepare("SELECT result_json FROM extraction_cache WHERE cache_key=? AND created_at > datetime('now','-7 days')").get(key);
     if (row) { result = JSON.parse(String(row.result_json)) as AnalysisResult; cacheHit = true; }
@@ -456,13 +464,23 @@ export class AnalysisPipeline {
         const schema = definition ? extractionSchemaFor(definition) : extractionSchema;
         const callStarted = performance.now();
         const raw = await this.run({ ...input, schema: batch ? batchSchema(schema, input) : schema, context: definition
-          ? `${input.analysisBrief ? 'Extract grounded facts relevant to the confirmed analysis brief that fit this frozen ontology.' : 'Extract all grounded facts that fit this frozen ontology.'} Use property API names as keys; serialize non-string values as JSON strings. Include required evidence-sourced primary and title properties, never invent missing values. Properties with valueSource documentId/documentName/evidenceId are assigned by the server: omit them from properties. Evidence quote spans for evidenceId records must specifically identify each distinct claim and its originating record. Include the actual record identifier or row anchor from the original text when the same short wording appears in separate records; never invent an anchor. Repeated descriptions alone cannot distinguish those records. Document envelope ids such as source-1 are metadata, never business identifiers from source columns. A Report mapped to doc_id requires an actual record containing doc_id; do not turn arbitrary CSV sections into Reports. Respect sourceMappings when interpreting individual records inside input documents. Declared primary keys define identity within this case. ${input.analysisBrief ? 'Consider every supplied record for the confirmed scope, including counterevidence; irrelevant facts remain in raw storage.' : 'Do not omit supported records because of the question.'} Keep output concise: avoid repeating source text in descriptions, quote only supporting spans. Unrepresentable facts must be explained in limitations. ${batch ? `Source identity groups: ${JSON.stringify(input.documents.map(doc => ({ documentId: doc.id, sourceGroup: doc.identityScope })))}. ` : ''}${batch ? 'This is a batch of separate records, all included in full. Read each independently. Return {extraction,sourceReviews}; include exactly one sourceReviews entry per supplied document, with status extracted or no_additional_facts and an explanation. Do not merge people or objects across documents merely because their names match. Do not skip any source or let one source negate another. If a record contradicts Jev hypotheses, follow the original evidence.' : ''} Ontology: ${JSON.stringify(extractionContract(definition))}\n${semanticContext ?? ''}\n${decisionContext ?? ''}\n${analysisBriefContext(input.analysisBrief)}\n${feedback}`
-          : `${input.analysisBrief ? 'Review every supplied document and extract the grounded facts needed for the confirmed scope, retaining exact evidence and counterevidence.' : 'Extract facts from every supplied document, retaining exact evidence.'} visited/located_in target places; encountered connects vessels; participated_in targets events; reported_by targets person/organization/document. ${analysisBriefContext(input.analysisBrief)}\n${feedback}` }, effectiveCodexConfig(this.codex), { signal, onUsage: value => usage({ codexInputTokens: value.inputTokens, codexOutputTokens: value.outputTokens, codexCachedInputTokens: value.cachedInputTokens }) }).finally(() => usage({ codexRunMs: performance.now() - callStarted }));
+          ? `${input.analysisBrief ? 'Extract source-grounded objects, reported claims and associations relevant to the confirmed analysis brief that fit this frozen ontology.' : 'Extract all source-grounded objects, reported claims and associations that fit this frozen ontology.'} Use property API names as keys; serialize non-string values as JSON strings. Include required evidence-sourced primary and title properties, never invent missing values. Properties with valueSource documentId/documentName/evidenceId are assigned by the server: omit them from properties. Evidence quote spans for evidenceId records must specifically identify each distinct claim and its originating record. Include the actual record identifier or row anchor from the original text when the same short wording appears in separate records; never invent an anchor. Repeated descriptions alone cannot distinguish those records. Document envelope ids such as source-1 are metadata, never business identifiers from source columns. A Report mapped to doc_id requires an actual record containing doc_id; do not turn arbitrary CSV sections into Reports. Respect sourceMappings when interpreting individual records inside input documents. Declared primary keys define identity within this case. ${input.analysisBrief ? 'Consider every supplied record for the confirmed scope, including counterevidence; irrelevant facts remain in raw storage.' : 'Do not omit supported records because of the question.'} Do not require the main conclusion to be proven before retaining the surrounding graph. Preserve uncertainty, denial and source mentions with the appropriate claim stance and relation label. Keep independently grounded objects even if they have no relationship. Missing optional metadata must not erase a claim. Keep output concise: avoid repeating source text in descriptions, quote only supporting spans. Unrepresentable facts must be explained in limitations. ${batch ? `Source identity groups: ${JSON.stringify(input.documents.map(doc => ({ documentId: doc.id, sourceGroup: doc.identityScope })))}. ` : ''}${batch ? 'This is a batch of separate records, all included in full. Read each independently. Return {extraction,sourceReviews}; include exactly one sourceReviews entry per supplied document, with status extracted or no_additional_facts and an explanation. Do not merge people or objects across documents merely because their names match. Do not skip any source or let one source negate another. If a record contradicts Jev hypotheses, follow the original evidence.' : ''} Ontology: ${JSON.stringify(extractionContract(definition))}\n${semanticContext ?? ''}\n${decisionContext ?? ''}\n${analysisBriefContext(input.analysisBrief)}\n${feedback}`
+          : `${input.analysisBrief ? 'Review every supplied document and extract grounded objects, claims and contextual associations within the confirmed scope, retaining exact evidence, uncertainty and counterevidence.' : 'Extract grounded objects, claims and contextual associations from every supplied document, retaining exact evidence and uncertainty even when the question cannot be answered conclusively.'} visited/located_in target places; encountered connects vessels; participated_in targets events; reported_by targets person/organization/document. ${analysisBriefContext(input.analysisBrief)}\n${feedback}` }, effectiveCodexConfig(this.codex), { signal, onUsage: value => usage({ codexInputTokens: value.inputTokens, codexOutputTokens: value.outputTokens, codexCachedInputTokens: value.cachedInputTokens }) }).finally(() => usage({ codexRunMs: performance.now() - callStarted }));
+        let candidate: unknown;
         try {
-          const checked = this.validate(batch ? readBatchExtraction(raw, input) : raw as OntologyExtraction, input, definition);
+          candidate = batch ? readBatchExtraction(raw, input) : raw;
+          const normalized = normalizeClaimMetadata(candidate, input);
+          candidate = normalized.value;
+          if (normalized.changed) { needsReview = true; review(); }
+          const checked = this.validate(candidate as OntologyExtraction, input, definition);
           return { extraction: checked, origin: 'codex', needsReview };
         } catch (error) {
-          if (attempt) throw error;
+          if (attempt) {
+            const recovered = error instanceof GraphValidationError ? recoverExtraction(candidate, input, definition) : undefined;
+            if (!recovered) throw error;
+            review();
+            return { extraction: recovered, origin: 'codex', needsReview: true };
+          }
           usage({ validationRetries: 1 });
           feedback = `Repair validation errors using only source evidence: ${error instanceof Error ? error.message.slice(0, 1000) : 'invalid extraction'}`;
         }

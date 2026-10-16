@@ -2,7 +2,9 @@ import { deleteStoredCase } from './case-deletion.ts';
 import { createHash, randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
-import { GRAPH_LIMITS } from '../src/lib/graph-document.ts';
+import { recoverExtraction } from './extraction-recovery.ts';
+import { normalizeClaimMetadata } from './claim-metadata.ts';
+import { GRAPH_LIMITS, GraphValidationError } from '../src/lib/graph-document.ts';
 import type { GraphGenerationInput, EvidenceDocument } from '../src/types/graph.ts';
 import type { CodexConfig } from './codex.ts';
 import type { AnalysisBrief } from '../src/types/clarification.ts';
@@ -12,9 +14,12 @@ import type { OntologyStore } from './ontology-store.ts';
 import { EVIDENCE_CHUNK_CHARS, splitEvidenceText } from './evidence-uploads.ts';
 import type { UploadedEvidence } from './evidence-uploads.ts';
 import { analysisBriefContext, designOntology } from './ontology-planner.ts';
+import { SqliteOntologyDesignCache } from './ontology-design-cache.ts';
 import { isStructuredName } from './structured-ingest.ts';
 import { AnalysisPipeline, emptyMetrics } from './analysis-pipeline.ts';
 import type { AnalysisMetrics, AnalysisOptions, AnalysisPart, AnalysisResult, AnalysisUploads } from './analysis-pipeline.ts';
+import { resolveUrlEvidence } from './url-evidence.ts';
+import type { UrlEvidenceRead } from './url-evidence.ts';
 
 export interface GenerationJob {
   id: string;
@@ -44,12 +49,15 @@ export interface GenerationJob {
   ontologyVersion?: number;
   ontologyName?: string;
   schemaOnly?: boolean;
+  urlReads?: UrlEvidenceRead[];
   startedAt?: string; firstGraphMs?: number; elapsedMs?: number;
 }
 export type CodexRunner = typeof runCodex;
 type UploadReader = AnalysisUploads;
 interface StoredInput extends GraphGenerationInput {
   evidenceResolved?: boolean;
+  urlEvidenceResolved?: boolean;
+  originalDocuments?: EvidenceDocument[];
   ontologyRepair?: { fromVersion: number; reason: string; kind?: 'identity' | 'mapping' };
   /** A timeout can request one mapping redesign; later retries keep the repaired schema. */
   timeoutMappingRepaired?: boolean;
@@ -69,7 +77,7 @@ function inlineBatches(documents: EvidenceDocument[]): EvidenceDocument[][] {
     batch.push(document); characters += document.text.length;
   };
   for (const source of documents) {
-    const document: EvidenceDocument = { id: source.id, name: source.name, text: source.text, ...(source.url ? { url: source.url } : {}) };
+    const document: EvidenceDocument = { id: source.id, name: source.name, text: source.text, ...(source.url ? { url: source.url } : {}), ...(source.identityScope ? { identityScope: source.identityScope } : {}) };
     if (document.text.length <= EVIDENCE_CHUNK_CHARS) { append(document); continue; }
     const digest = createHash('sha256').update(document.text).digest('hex');
     const idDigest = createHash('sha256').update(document.id).digest('hex').slice(0, 20);
@@ -96,12 +104,37 @@ export class JobManager {
   private pipeline?: AnalysisPipeline;
   private ontologyPlanning: boolean;
   private planJevRules: boolean;
+  private ontologyDesignCache: SqliteOntologyDesignCache;
   private executionGenerations = new Map<string, symbol>();
 
-  constructor(store: OntologyStore, config: CodexConfig, runner: CodexRunner = runCodex, uploads?: UploadReader, analysis?: AnalysisOptions) {
+  private resolveUrls: typeof resolveUrlEvidence;
+  private completedListener?: (job: GenerationJob) => void;
+  private inputsReadyListener?: (job: GenerationJob, documents: EvidenceDocument[]) => void;
+  private stoppedListener?: (job: GenerationJob) => void;
+
+  onCompleted(listener: (job: GenerationJob) => void) { this.completedListener = listener; }
+  onInputsReady(listener: (job: GenerationJob, documents: EvidenceDocument[]) => void) { this.inputsReadyListener = listener; }
+  onStopped(listener: (job: GenerationJob) => void) { this.stoppedListener = listener; }
+  private notifyInputsReady(job: PendingJob) {
+    if (!this.inputsReadyListener) return;
+    const documents = job.input.documents.filter(source => source.text.trim()).slice(0, 10).map(source => ({ ...source, text: source.text.slice(0, 10000) }));
+    for (const id of job.input.uploadIds ?? []) {
+      if (documents.length >= 10) break;
+      const chunk = this.uploads?.getChunk(id, 0);
+      if (chunk?.text.trim()) documents.push({ ...chunk, text: chunk.text.slice(0, 10000) });
+    }
+    if (documents.length) {
+      try { this.inputsReadyListener(this.get(job.id)!, documents); }
+      catch { /* Background graph preparation must not stop main analysis. */ }
+    }
+  }
+
+  constructor(store: OntologyStore, config: CodexConfig, runner: CodexRunner = runCodex, uploads?: UploadReader, analysis?: AnalysisOptions, resolveUrls: typeof resolveUrlEvidence = resolveUrlEvidence) {
     this.store = store; this.db = store.db; this.config = config; this.runner = runner; this.uploads = uploads;
+    this.resolveUrls = resolveUrls;
     this.ontologyPlanning = analysis?.ontologyPlanning === true;
     this.planJevRules = Boolean(analysis?.jev?.apiKey);
+    this.ontologyDesignCache = new SqliteOntologyDesignCache(this.db);
     if (analysis) this.pipeline = new AnalysisPipeline(this.db, config, runner, uploads, analysis);
     this.db.exec('CREATE TABLE IF NOT EXISTS generation_jobs (id TEXT PRIMARY KEY, payload TEXT NOT NULL, created_at TEXT NOT NULL, input_json TEXT)');
     const columns = this.db.prepare('PRAGMA table_info(generation_jobs)').all() as { name: string }[];
@@ -111,13 +144,32 @@ export class JobManager {
     for (const { id } of interrupted) {
       const job = this.readJob(id)!;
       if (job.totalChunks > 0 && job.completedChunks === job.totalChunks) {
-        this.update(id, job.graphCount || job.metrics?.scopeSkippedParts === job.totalChunks
+        const emptyReport = this.hasCompletedEmptyRecords(job);
+        this.update(id, emptyReport
+          ? { status: 'completed', error: undefined, errorCode: undefined, message: this.emptyResultMessage(job.totalChunks) }
+          : job.graphCount || job.metrics?.scopeSkippedParts === job.totalChunks
           ? { status: 'completed', error: undefined, message: `전체 ${job.totalChunks}부분의 저장된 완료 기록을 복구했습니다. 그래프 ${job.graphCount}개가 보관되어 있습니다.` }
           : { status: 'failed', error: `전체 ${job.totalChunks}부분에서 질문과 관련된 근거를 찾지 못했습니다.`, message: '전체 자료를 확인했지만 생성할 그래프가 없습니다.' });
         continue;
       }
       this.update(id, { status: 'failed', error: '서버가 재시작되어 작업이 중단되었습니다. 저장된 결과를 유지하며 남은 부분부터 다시 시작할 수 있습니다.', message: `서버 재시작으로 중단됨 · ${job.completedChunks}/${job.totalChunks}부분 처리 · 그래프 ${job.graphCount}개 보관` });
     }
+  }
+
+  private emptyResultMessage(total: number): string {
+    return `전체 ${total}부분을 분석했습니다. 제공된 자료만으로 질문에 답할 근거가 충분하지 않습니다. 판단 이유와 원문을 분석 기록에 보존했습니다.`;
+  }
+
+  /** A valid empty answer is usable only when its explanation and originals were saved. */
+  private hasCompletedEmptyRecords(job: GenerationJob): boolean {
+    if (!this.pipeline || job.processingMode !== 'hybrid' || job.graphCount || !job.totalChunks
+      || job.completedChunks !== job.totalChunks || job.emptyChunks !== job.totalChunks || job.metrics?.reviewParts) return false;
+    const row = this.db.prepare(`SELECT count(*) AS count FROM analysis_parts p
+      JOIN analysis_record_archive a ON a.job_id=p.job_id AND a.part_index=p.part_index
+      WHERE p.job_id=? AND p.part_index BETWEEN 1 AND ? AND p.payload IS NULL AND p.graph_id IS NULL AND p.reviewed=0
+        AND json_type(a.record_json,'$.extraction')='object'
+        AND json_array_length(a.record_json,'$.extraction.entities')=0`).get(job.id, job.totalChunks);
+    return Number(row?.count) === job.totalChunks;
   }
 
   /** One-time migration for hybrid snapshots written before graph membership was normalized. */
@@ -154,7 +206,9 @@ export class JobManager {
     const completedChunks = raw.completedChunks ?? (raw.status === 'completed' ? 1 : 0);
     const totalChunks = raw.totalChunks ?? (raw.status === 'completed' ? 1 : 0);
     const pendingPlan = raw.processingMode === 'hybrid' && this.pipeline && !this.db.prepare('SELECT ready FROM analysis_plans WHERE job_id=?').get(raw.id)?.ready;
-    const canStart = !!row.input_json && (totalChunks > completedChunks || (totalChunks === 0 && (pendingPlan || !(JSON.parse(row.input_json) as StoredInput).evidenceResolved)));
+    const input = row.input_json ? JSON.parse(row.input_json) as StoredInput : undefined;
+    const pendingUrls = input?.urlEvidenceResolved === false;
+    const canStart = !!input && (totalChunks > completedChunks || (totalChunks === 0 && (pendingPlan || !input.evidenceResolved || pendingUrls)));
     return { ...raw, graphIds, graphCount, completedChunks, totalChunks, emptyChunks: raw.emptyChunks ?? 0, resumable: ['failed', 'cancelled'].includes(raw.status) && canStart };
   }
   /** Internal status changes never fetch the growing graph membership collection. */
@@ -253,6 +307,14 @@ export class JobManager {
     if (next.startedAt) next.elapsedMs = Math.max(0, Date.now() - Date.parse(next.startedAt));
     const persisted = { ...next, ...(next.processingMode === 'hybrid' && next.graphCount !== undefined ? { graphIds: undefined } : {}) };
     this.db.prepare('UPDATE generation_jobs SET payload = ? WHERE id = ?').run(JSON.stringify(persisted), id);
+    if (previous.status !== 'completed' && next.status === 'completed' && this.completedListener) {
+      // Preparation is queued after the durable completion commit. Its failure
+      // must never turn an already saved analysis into a failed analysis.
+      try { this.completedListener(this.get(id)!); } catch { /* reconciled on startup */ }
+    }
+    if (previous.status !== next.status && (next.status === 'failed' || next.status === 'cancelled')) {
+      try { this.stoppedListener?.(this.get(id)!); } catch { /* preparation must not invalidate saved analysis */ }
+    }
     return this.readJob(id)!;
   }
   private pump() {
@@ -266,6 +328,39 @@ export class JobManager {
       this.active.set(next.id, { job: next, task });
     }
   }
+  private async prepareUrlEvidence(job: PendingJob, signal: AbortSignal) {
+    const checkpoint = this.readJob(job.id)!;
+    // Resuming an existing extraction must use the same evidence and frozen plan.
+    if (job.input.urlEvidenceResolved || checkpoint.totalChunks || this.store.getDefinitionForJob(job.id)) return;
+    job.input.urlEvidenceResolved = false;
+    this.db.prepare('UPDATE generation_jobs SET input_json=? WHERE id=?').run(JSON.stringify(job.input), job.id);
+    const resolved = await this.resolveUrls(job.input.documents, {
+      signal,
+      progress: message => { if (!signal.aborted) this.update(job.id, { stage: 'preparing', message }); },
+    });
+    signal.throwIfAborted();
+    if (resolved.results.length) {
+      job.input.originalDocuments ??= structuredClone(job.input.documents);
+      this.update(job.id, { urlReads: resolved.results });
+      if (!resolved.documents.some(document => document.text.trim()) && !job.input.uploadIds?.length) {
+        // Keep the original URLs retryable; failed reads must not become a saved empty input.
+        this.db.prepare('UPDATE generation_jobs SET input_json=? WHERE id=?').run(JSON.stringify(job.input), job.id);
+        const reasons = resolved.results.filter(read => read.status === 'failed').slice(0, 3)
+          .map(read => `${read.url}: ${read.reason ?? '본문을 읽지 못했습니다.'}`).join('\n');
+        throw new Error(`URL ${resolved.results.length}개의 본문을 읽지 못해 분석을 시작하지 않았습니다. 링크를 다시 확인하거나 기사 본문을 붙여넣어주세요.\n${reasons}`);
+      }
+      job.input.documents = resolved.documents;
+    }
+    job.input.urlEvidenceResolved = true;
+    this.db.prepare('UPDATE generation_jobs SET input_json=? WHERE id=?').run(JSON.stringify(job.input), job.id);
+  }
+
+  private urlReadLimitations(id: string): string[] {
+    return (this.readJob(id)?.urlReads ?? []).flatMap(read => read.status === 'failed'
+      ? [`URL 본문을 읽지 못해 이 자료의 주장은 검증하지 않았습니다: ${read.url.slice(0, 350)} (${read.reason?.slice(0, 180) ?? '읽기 실패'}).`]
+      : read.truncated ? [`URL 본문이 길어 읽기 한도까지 분석했습니다. 뒷부분은 검토하지 않았습니다: ${read.url.slice(0, 350)}.`] : []);
+  }
+
   private async execute(job: PendingJob) {
     if (this.pipeline && this.readJob(job.id)?.processingMode === 'hybrid') return this.executeHybrid(job);
     const signal = job.controller.signal;
@@ -280,6 +375,8 @@ export class JobManager {
         job.input.evidenceResolved = true;
         this.db.prepare('UPDATE generation_jobs SET input_json=? WHERE id=?').run(JSON.stringify(job.input), job.id);
       }
+      await this.prepareUrlEvidence(job, signal);
+      this.notifyInputsReady(job);
       const batches = inlineBatches(job.input.documents);
       const uploaded = (job.input.uploadIds ?? []).map(id => {
         const metadata = this.uploads?.get(id);
@@ -330,12 +427,14 @@ export class JobManager {
         let validationFeedback = '';
         for (let attempt = 0; attempt < 2; attempt++) {
           advance('extracting', `${prefix}${attempt ? '검증에서 발견한 항목을 원문과 다시 대조하고 있습니다.' : '객체·관계와 원문 근거를 추출하고 있습니다.'}`);
-          const candidate = await this.runner({ ...input, schema: extractionSchema, context: `${ontologyContext}\n${analysisBriefContext(job.input.analysisBrief)}\n${validationFeedback}` }, this.config, { signal });
+          const raw = await this.runner({ ...input, schema: extractionSchema, context: `${ontologyContext}\n${analysisBriefContext(job.input.analysisBrief)}\n${validationFeedback}` }, this.config, { signal });
+          const candidate = normalizeClaimMetadata(raw, input).value;
           advance('validating', `${prefix}출처 문장, 객체 유형, 연결 대상과 날짜를 검사하고 있습니다.`);
           let extraction;
           let graph;
           try {
             extraction = parseExtraction(candidate, input);
+            extraction.limitations = [...new Set([...extraction.limitations, ...this.urlReadLimitations(job.id)])].slice(0, 20);
             graph = compileExtraction(extraction, input);
           } catch (error) {
             if (error instanceof InsufficientEvidenceError) {
@@ -343,9 +442,15 @@ export class JobManager {
               this.update(job.id, { completedChunks: number, emptyChunks: previous.emptyChunks + 1, message: `${prefix}질문에 사용할 근거가 없는 부분입니다. 다음 부분으로 진행합니다.` });
               break;
             }
-            if (attempt) throw new Error(`자료의 근거와 그래프 규칙을 확인하지 못했습니다. ${error instanceof Error ? error.message.slice(0, 400) : ''}`);
-            validationFeedback = `Your previous extraction failed validation: ${error instanceof Error ? error.message.slice(0, 1000) : 'invalid graph'}. Return a corrected extraction grounded in exact supplied text.`;
-            continue;
+            if (attempt) {
+              extraction = error instanceof GraphValidationError ? recoverExtraction(candidate, input) : undefined;
+              if (!extraction) throw new Error(`자료의 근거와 그래프 규칙을 확인하지 못했습니다. ${error instanceof Error ? error.message.slice(0, 400) : ''}`);
+              extraction.limitations = [...new Set([...extraction.limitations, ...this.urlReadLimitations(job.id)])].slice(0, 20);
+              graph = compileExtraction(extraction, input);
+            } else {
+              validationFeedback = `Your previous extraction failed validation: ${error instanceof Error ? error.message.slice(0, 1000) : 'invalid graph'}. Return a corrected extraction grounded in exact supplied text.`;
+              continue;
+            }
           }
           if (totalChunks > 1) {
             const suffix = ` · part ${number}/${totalChunks}`;
@@ -384,6 +489,7 @@ export class JobManager {
     type Settled = { ok: true; part: AnalysisPart; result: AnalysisResult } | { ok: false; error: unknown };
     const pending = new Map<number, Promise<Settled>>();
     const prefetching = new Set<Promise<void>>();
+    const warmed = new Map<string, { outcome: Promise<Settled>; reviewState: { needed: boolean } }>();
     let prefetched = 0;
     const metrics = (delta: Partial<AnalysisMetrics>) => {
       // A response may report billed usage while cancellation is draining pending work.
@@ -400,15 +506,17 @@ export class JobManager {
         job.input.evidenceResolved = true;
         this.db.prepare('UPDATE generation_jobs SET input_json=? WHERE id=?').run(JSON.stringify(job.input), job.id);
       }
+      await this.prepareUrlEvidence(job, signal);
+      this.notifyInputsReady(job);
       let definition = this.store.getDefinitionForJob(job.id);
       if (this.readJob(job.id)!.ontologyPlanning) {
-        this.update(job.id, { stage: 'designing', message: 'Codex가 자료와 질문에 맞는 객체 유형·속성·관계·변환 규칙을 설계합니다.' });
+        this.update(job.id, { stage: 'designing', message: 'AI가 자료와 질문에 맞는 객체 유형·속성·관계·변환 규칙을 설계합니다.' });
         if (definition && job.input.ontologyRepair) {
           const repair = job.input.ontologyRepair;
           if (definition.version !== repair.fromVersion) throw new Error('수정 대상 온톨로지 버전이 변경되었습니다. 새 분석을 시작해주세요.');
           if (this.readJob(job.id)!.completedChunks || this.readJob(job.id)!.graphCount) throw new Error('이미 저장한 결과의 온톨로지는 다시 설계하지 않습니다.');
           const revised = await designOntology(job.input, this.uploads, this.runner, this.config, {
-            id: definition.id, version: definition.version + 1, repairReason: repair.reason, signal, metrics, planJevRules: this.planJevRules,
+            id: definition.id, version: definition.version + 1, repairReason: repair.reason, signal, metrics, planJevRules: this.planJevRules, cache: this.ontologyDesignCache,
             usage: () => metrics({ codexCalls: 1 }), progress: message => { if (!signal.aborted) this.update(job.id, { message: `변환 규칙 보완 · ${message}` }); },
           });
           signal.throwIfAborted();
@@ -432,7 +540,7 @@ export class JobManager {
         }
         if (!definition) {
           definition = await designOntology(job.input, this.uploads, this.runner, this.config, {
-            id: `ontology-${job.id}`, signal, metrics, planJevRules: this.planJevRules, usage: () => metrics({ codexCalls: 1 }),
+            id: `ontology-${job.id}`, signal, metrics, planJevRules: this.planJevRules, cache: this.ontologyDesignCache, usage: () => metrics({ codexCalls: 1 }),
             progress: message => { if (!signal.aborted) this.update(job.id, { message }); },
           });
           signal.throwIfAborted();
@@ -448,17 +556,24 @@ export class JobManager {
       this.update(job.id, { stage: 'preparing', message: '설계된 온톨로지로 전체 자료의 변환·추출 순서를 준비합니다.' });
       let total = await pipeline.prepare(job.id, job.input, signal, count => {
         if (!signal.aborted) this.update(job.id, { message: `전체 자료를 읽으며 ${count}개 분석 단위를 준비했습니다. 표의 모든 행을 보존합니다.` });
-      }, definition, { usage: metrics, prepared: (this.config.concurrency ?? 1) > 1 ? async part => {
+      }, definition, { usage: metrics, prepared: async part => {
         // Warm only the first window. Warming the entire plan would postpone every saved result.
+        // Even one worker can extract the first source while later uploads are prepared.
         if (part.extraction || prefetched >= (this.config.concurrency ?? 1)) return;
+        const key = JSON.stringify(part);
+        if (warmed.has(key)) return;
         prefetched++;
         signal.throwIfAborted();
-        let task: Promise<void>;
         const warmSignal = AbortSignal.any([signal, wave.signal]);
-        task = pipeline.process(part, job.input.question, warmSignal, metrics, () => {}, definition, job.input.analysisBrief, job.id)
-          .then(() => undefined, () => undefined).finally(() => prefetching.delete(task));
+        const reviewState = { needed: false };
+        const outcome = pipeline.process(part, job.input.question, warmSignal, metrics, () => { reviewState.needed = true; }, definition, job.input.analysisBrief, job.id)
+          .then(result => ({ ok: true as const, part, result }), error => ({ ok: false as const, error }));
+        warmed.set(key, { outcome, reviewState });
+        // Hand the validated result directly to the saving worker. Running process again
+        // would repeat source rebinding and count a warm cache hit twice.
+        const task = outcome.then(() => undefined).finally(() => prefetching.delete(task));
         prefetching.add(task);
-      } : undefined, routing: message => {
+      }, routing: message => {
         if (!signal.aborted) this.update(job.id, { jevRouting: { message }, message });
       } });
       metrics({ preparationMs: performance.now() - preparationStarted });
@@ -477,8 +592,13 @@ export class JobManager {
           const review = () => {
             if (!partSignal.aborted && pipeline.markReview(job.id, number)) metrics({ reviewParts: 1 });
           };
-          const promise = pipeline.process(part, job.input.question, partSignal, metrics, review, definition, job.input.analysisBrief, job.id)
-            .then(result => ({ ok: true as const, part, result }), error => ({ ok: false as const, error }));
+          const key = !part.extraction && warmed.size ? JSON.stringify(part) : undefined;
+          const warm = key ? warmed.get(key) : undefined;
+          if (key) warmed.delete(key);
+          const promise = warm
+            ? warm.outcome.then(outcome => { if (warm.reviewState.needed) review(); return outcome; })
+            : pipeline.process(part, job.input.question, partSignal, metrics, review, definition, job.input.analysisBrief, job.id)
+              .then(result => ({ ok: true as const, part, result }), error => ({ ok: false as const, error }));
           pending.set(number, promise);
         }
       };
@@ -494,6 +614,7 @@ export class JobManager {
             wave.abort();
             await Promise.allSettled([...pending.values(), ...prefetching]);
             pending.clear();
+            warmed.clear();
             signal.throwIfAborted();
             const split = pipeline.splitTimedOutPart(job.id, next, updated => {
               // Commit the public total with the repartitioned plan so restart sees one checkpoint.
@@ -511,6 +632,7 @@ export class JobManager {
           throw item.error;
         }
         const { part, result } = item;
+        result.extraction.limitations = [...new Set([...result.extraction.limitations, ...this.urlReadLimitations(job.id)])].slice(0, 20);
         const prefix = `${next}/${total}부분`;
         this.update(job.id, { stage: 'validating', currentSource: part.documents.map(doc => doc.name).join(', ').slice(0, 1000), message: `${prefix} · 출처와 그래프 구조를 검증합니다.` });
         const complete = (graphId?: string) => {
@@ -553,6 +675,10 @@ export class JobManager {
       const finished = this.readJob(job.id)!;
       if (!finished.graphCount && finished.metrics?.scopeSkippedParts === total) {
         this.update(job.id, { status: 'completed', stage: 'saving', error: undefined, message: '확정한 범위에 해당하는 자료가 없습니다. 전체 원문은 분석 기록과 검색에 보존했습니다.' });
+        return;
+      }
+      if (this.hasCompletedEmptyRecords(finished)) {
+        this.update(job.id, { status: 'completed', stage: 'saving', error: undefined, errorCode: undefined, message: this.emptyResultMessage(total) });
         return;
       }
       if (!finished.graphCount) throw new Error(`전체 ${total}부분을 처리했으나 그래프로 저장할 근거를 찾지 못했습니다. 검토가 필요한 부분은 ${finished.metrics?.reviewParts ?? 0}개입니다.`);

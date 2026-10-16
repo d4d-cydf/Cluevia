@@ -1,0 +1,203 @@
+---
+title: "GraphDocument"
+description: "Ready-to-import JSON examples with fields, size limits, referencing rules for schemaVersion 1.0."
+---
+
+`GraphDocument` is a graph display contract shared by public examples, imported JSON, and single analysis results. The type definition is in `src/types/graph.ts`, and the run-time verification is in `src/lib/graph-document.ts`.
+
+## Minimum valid example [#유효한-최소-예제]
+
+You can save the contents below as a UTF-8 JSON file and open it with **Load Graph JSON**. This is fictitious material to illustrate examples, and there are no relationships or dated events.
+
+```json title="minimal.graph.json"
+{
+  "schemaVersion": "1.0",
+  "id": "research-note",
+  "title": "프로젝트 자료 정리",
+  "question": "자료에 등장하는 프로젝트는 무엇인가?",
+  "summary": "프로젝트 소개 메모에 등장하는 대상을 정리했습니다.",
+  "origin": "imported",
+  "createdAt": "2026-10-01T09:00:00+09:00",
+  "limitations": ["형식 설명용 가상 자료입니다."],
+  "groups": [
+    { "id": "projects", "label": "프로젝트", "color": "#B8321A" }
+  ],
+  "sources": [
+    {
+      "id": "note-1",
+      "title": "프로젝트 소개 메모",
+      "excerpt": "Cluevia는 자료의 객체와 관계를 살펴보는 프로젝트입니다."
+    }
+  ],
+  "nodes": [
+    {
+      "id": "cluevia",
+      "label": "Cluevia",
+      "type": "project",
+      "group": "projects",
+      "description": "메모에 소개된 프로젝트",
+      "sourceIds": ["note-1"],
+      "properties": {}
+    }
+  ],
+  "edges": [],
+  "events": [],
+  "findings": []
+}
+```
+
+## top level field [#최상위-필드]
+
+All fields below are required. Even empty arrays include the fields themselves.
+
+| field | Type/Restrictions | meaning |
+| --- | --- | --- |
+| `schemaVersion` | `"1.0"` | Schema versions currently supported |
+| `id` | ID, maximum 80 characters | Graph ID. No colons |
+| `title` | String, 1–200 characters | case title |
+| `question` | String, 1–2,000 characters | analysis questions |
+| `summary` | String, 1–5,000 characters | summary |
+| `origin` | `published-source`, `imported`, `aip`, `codex`, `jev`, `structured`, `demo` | Creation Path |
+| `createdAt` | ISO date or time | When the document was written |
+| `limitations` | array of strings, 0–20 | Interpretation limit: 1–1,000 characters each |
+| `groups` | `GraphGroup[]`, 1–12 | Object classification |
+| `sources` | `GraphSource[]`, 1–30 | supporting data |
+| `nodes` | `GraphNode[]`, 1–200 | object |
+| `edges` | `GraphEdge[]`, 0–500 | relationship |
+| `events` | `GraphEvent[]`, 0–300 | event with date |
+| `findings` | `GraphFinding[]`, 0–30 | analysis sentence |
+
+The selection fields `ontologyId` and `ontologyVersion` are used together. The ID follows the normal ID rules and the version is a safe integer of 1 or higher. The above number limit applies to a single graph, and server case projections combining multiple records are separate.
+
+## Group · GraphGroup [#그룹--graphgroup]
+
+| field | required | rules |
+| --- | --- | --- |
+| `id` | Yes | ID |
+| `label` | Yes | 1–100 characters |
+| `color` | Yes | Exactly 6 hexadecimal digits `#RRGGBB` |
+
+## source · GraphSource [#출처--graphsource]
+
+| field | required | rules |
+| --- | --- | --- |
+| `id` | Yes | ID |
+| `title` | Yes | 1–300 characters |
+| `url` | No | Up to 2,048 character HTTP or HTTPS URL, not including username/password |
+| `publisher` | No | 1–150 characters |
+| `publishedAt` | No | ISO date or time |
+| `accessedAt` | No | ISO date or time |
+| `excerpt` | No | 1–1,200 characters |
+| `contentHash`, `sourceFamily` | No | Lowercase hexadecimal 64-digit hash |
+
+source is valid with just the title and ID without URL. The URL is normalized by the `URL` parser and used to move to the original text when the browser displays source. There is no automatic collection of URL content.
+
+## Object · GraphNode [#객체--graphnode]
+
+| field | required | rules |
+| --- | --- | --- |
+| `id` | Yes | ID |
+| `label` | Yes | 1–180 characters |
+| `type` | Yes | 1–80 characters. No pre-fixed list of types |
+| `group` | Yes | Existing group ID |
+| `description` | Yes | 0–2,000 characters. Allow empty string |
+| `sourceIds` | Yes | See source, at least 1 |
+| `properties` | Yes | Object of string value, up to 25 properties. Allow empty objects |
+
+Each `properties` key is a string of 1–100 characters; each value is a string of 0–500 characters. Encode numbers and booleans as strings in imported JSON as well. Leading and trailing whitespace is removed from both keys and values.
+
+## Relationship · GraphEdge [#관계--graphedge]
+
+| field | required | rules |
+| --- | --- | --- |
+| `id` | Yes | ID |
+| `source` | Yes | Startup object ID |
+| `target` | Yes | End object ID |
+| `label` | Yes | 1–150 characters |
+| `description` | Yes | 0–2,000 characters |
+| `status` | Yes | `reported` or `inferred` |
+| `sourceIds` | Yes | See source, at least 1 |
+| `highlighted` | No | Bullion. Whether to emphasize key relationships |
+| `claim` | No | claim attitude, subject, period, and secondary citation expressed in the data |
+
+Both `source` and `target` must exist. It also allows relationships that point to the same object and multiple relationships of the same object pair. The `id` of each relationship must be different.
+
+### Relationship claim · RelationClaim [#관계-주장--relationclaim]
+
+Using `claim` includes all of the keys below. If you do not know values ​​other than `stance`, leave them as `null`.
+
+| field | value |
+| --- | --- |
+| `stance` | `asserted`, `denied`, `retracted`, `uncertain` |
+| `attributedTo`, `derivedFrom` | claim Subject/secondary citation source, each 1–500 character string or `null` |
+| `validFrom`, `validTo`, `publishedAt` | Actual ISO date/time or `null` |
+
+If the expiration date is reversed, we will reject it. The user review status, `review`, is information appended to the server case and is not a field preserved by this common JSON parser.
+
+## Event · GraphEvent [#사건--graphevent]
+
+| field | required | rules |
+| --- | --- | --- |
+| `id` | Yes | ID |
+| `label` | Yes | 1–180 characters |
+| `date` | Yes | ISO date or time |
+| `endDate` | No | ISO date or time that is equal to or later than the start |
+| `description` | Yes | 0–2,000 characters |
+| `nodeIds` | Yes | Object reference, at least 1 |
+| `sourceIds` | Yes | See source, at least 1 |
+
+## Analysis · GraphFinding [#분석--graphfinding]
+
+| field | required | rules |
+| --- | --- | --- |
+| `text` | Yes | 1–2,000 characters |
+| `sourceIds` | Yes | See source, at least 1 |
+| `nodeIds` | Yes | Object references, empty arrays allowed |
+| `edgeIds` | No | Relational references, empty arrays allowed |
+
+There is no separate `id` in the analysis item. Even if it is `nodeIds: []`, the basis `sourceIds` is required.
+
+## Common Verification Rules [#공통-검증-규칙]
+
+### IDs and references [#id와-참조]
+
+The ID can be up to 80 characters long and starts with an English letter and number. Afterwards, only English letters, numbers, dots, underscores, colons, and hyphens are allowed. Colons cannot be used only in the top-level graph `id`.
+
+```text
+일반 ID: /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/
+그래프 ID: /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
+```
+
+IDs cannot be duplicated within each `groups`, `sources`, `nodes`, `edges`, `events` array. There is no global redundancy check between different types of arrays.
+
+There can be a maximum of 200 reference arrays each, and the same ID cannot be entered twice. References to source must exist in `sources`, object references in `nodes`, relational references in `edges`, and group references to objects in `groups`.
+
+### Strings and Select Fields [#문자열과-선택-필드]
+
+Strings are checked for length before leading and trailing whitespace is removed. Fields that disallow empty values also reject strings containing only whitespace. Character limits in the table use JavaScript string `length`, not UTF-8 byte counts.
+
+Omit it if you are not using an optional field. In general selection fields, `null` does not replace omission. Nullable values ​​inside `claim` follow the above contract. Additional unknown fields are removed from the verified results.
+
+### date [#날짜]
+
+Record only the date, or use ISO time with seconds and time zone. Fractional seconds of time can have up to 1–3 digits.
+
+```text
+2026-10-01
+2026-10-01T09:30:00+09:00
+2026-10-01T00:30:00.123Z
+```
+
+Non-existent calendar dates, times outside of time zones, and end dates before the start are rejected.
+
+## File size and errors [#파일-크기와-오류]
+
+The size limit for `parseGraphText` and file imports is **2,000,000 bytes**. UTF-8 size-based and separate from object checking in `parseGraphDocument`. Browser storage alternatives also inspect the size of the JSON to be stored.
+
+Verification stops at the first error. The path varies depending on the inspection location and type, such as `node.label`, `edge 관계ID`, and `events[0]`, and not all errors are displayed with an array sequence number and ID.
+
+<Callout title={"Values that change on import"}>
+It first verifies the file's original fields and references, replaces `origin` with `imported`, and gives a new graph ID on save. Server import removes the `ontologyId`·`ontologyVersion` associations and adds the limitation that the original ontology definitions and verified object data are not included.
+</Callout>
+
+General graph JSON is display data and is not a format for restoring the entire ontology·original text·analysis record of the server. The integrated `.case.json` snapshot does not currently support reimport. Please refer to [Save and Import](/en/docs/guide/import-export).

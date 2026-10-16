@@ -158,6 +158,7 @@ export async function clarify(input: ClarificationInput, config: CodexConfig, ru
         originalRequest: valid.question, answers: valid.answers,
         sourceSamples: valid.sources,
         coverage: 'Source excerpts are samples only, not a complete review. Do not infer absence from omitted text. No source data is being filtered or uploaded during this clarification.',
+        urlReading: 'Standalone HTTP(S) URLs in supplied text will be opened and their readable public article bodies collected before ontology design and extraction. Do not limit the scope to URL strings or ask the user to paste article text preemptively. Reading may fail; blocked or unavailable pages will be reported, never guessed from a URL. This step does not open links or verify their content.',
       }),
     }, { ...effectiveCodexConfig(config, 'clarification'), timeoutMs: Math.min(config.timeoutMs ?? 60000, 60000) }, { signal });
     signal?.throwIfAborted();

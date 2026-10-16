@@ -1,0 +1,12 @@
+{
+  "title": "현재 구현 알고리즘",
+  "pages": [
+    "current-pipeline",
+    "extraction",
+    "validation",
+    "board-layout",
+    "edge-routing",
+    "timeline",
+    "exploration"
+  ]
+}

@@ -1,0 +1,80 @@
+---
+title: "Data Validation"
+description: "After checking the original text citations and ontology constraints, we construct a graph with consistent fields, IDs, dates, and references."
+---
+
+Cluevia's verification is divided into **extraction basis checking** and **graph contract checking**. Model extraction goes through two layers, and the completed JSON import inspects the graph contract.
+
+| verifier | input | checking |
+| --- | --- | --- |
+| `parseExtraction` | Extraction results, original text, ontology | Type/Attribute/Relationship Constraints, Quotations, Identification Basis |
+| `parseGraphDocument` | Unknown JSON value | Field·Size·Date·ID·Reference |
+
+## Compare the original text and the extraction results [#원문과-추출-결과를-대조한다]
+
+`server/ontology.ts` checks whether `documentId` in the citation exists in the input material and whether the text contains the string `quote` exactly. The identifier must be present in the citation, and separate checks are also applied to the values ​​set as evidence-based primary keys in ontology.
+
+For example, if the source text is `고객 번호 C-17` and the model returns `C-18` as an identifier, that citation cannot be passed. Even if the same name appears, the name alone does not prove that it is the same object.
+
+When saving, the UTF-16 start and end positions of the citation and the SHA-256 of the analysis text are recorded. When the same phrase is repeated, it preserves location candidates and ambiguity. A hash is a text identification value and is not actually an authentication value.
+
+## Create a new object with allowed graph fields [#허용된-그래프-필드로-새-객체를-만든다]
+
+At runtime, `parseGraphDocument` checks types, lengths, counts, and formats, then constructs a new object containing only the required fields. Unknown fields are not copied. String lengths are checked before trimming leading and trailing whitespace.
+
+```text
+최상위 객체 · 스키마 버전 · 작성 경로 · 그래프 ID
+  → groups / sources / nodes / edges / events / findings 구성
+  → 종류별 ID 집합과 중복 검사
+  → 그룹 · 객체 · 관계 · 출처 참조 검사
+  → 온톨로지 ID·버전 및 나머지 메타데이터 확인
+```
+
+The test stops at the first error. The selection field is omitted, and putting `null` in a general selection field is different from omitting it. However, the nullable field inside `claim` allows `null` according to the contract.
+
+## Check for duplicates and references with ID sets [#id-집합으로-중복과-참조를-검사한다]
+
+| See also | Set of IDs to check |
+| --- | --- |
+| `node.group` | group |
+| `edge.source`, `edge.target`, `event.nodeIds`, `finding.nodeIds` | object |
+| `finding.edgeIds` | relationship |
+| All `sourceIds` | source |
+
+IDs within each array cannot be duplicated. There is no global redundancy check between different types of arrays. Reference arrays also do not allow internal duplication.
+
+If there is only A in the object list and the endpoint of the relationship is B, it will fail as `edge 관계ID: 존재하지 않는 ID: B`. Multiple relationships of pairs of objects, such as self-relations, are allowed.
+
+## Check date and extended fields [#날짜와-확장-필드를-확인한다]
+
+The date is `YYYY-MM-DD` or ISO time with seconds and time zone. Check `Date.parse` with a regular expression and round-trip convert the date part to midnight UTC to filter out invalid dates like `2026-02-30`. Reject if the end of the period is earlier than the start.
+
+| field | rules |
+| --- | --- |
+| `ontologyId`, `ontologyVersion` | Both must be present together. The version is a safe integer greater than or equal to 1. |
+| `source.contentHash`, `source.sourceFamily` | 64 lowercase hexadecimal digits SHA-256 format |
+| `edge.claim` | claim Attitude, subject, validity period, date of publication and secondary citation source Inspection |
+
+Period comparisons and [time axis coordinates](/en/docs/algorithms/timeline) use absolute times that reflect the time zone offset.
+
+## Boundaries between single graph and integrated cases [#단일-그래프와-통합-케이스의-경계]
+
+A single `GraphDocument` allows up to 200 objects, 500 relationships, and 300 events. `parseGraphText` also checks that the UTF-8 size of the JSON is less than or equal to 2,000,000 bytes.
+
+Cases that combine multiple analysis records are the result of separate server projections. A single extraction limit is not reapplied to the entire case. `.case.json` export is also in a different format than regular graph JSON.
+
+Import verifies the original file first, then changes `origin` to `imported` and saves it. We do not bypass validation by arbitrarily guessing IDs or missing references.
+
+## Complexity and Limitations [#복잡도와-한계]
+
+If the number of graph items is `N`, the number of references is `R`, and the amount of text to check/copy is `S`, then the graph contract check can be viewed as `O(N + R + S)`, assuming a set lookup in average constant time. The cost of string search for original text citation check is separate.
+
+A successful validation means that the structure and citation follow the validation rules. We do not determine the authenticity of source, the validity of the inference, omission of facts, or even the accuracy of the overall merge.
+
+## Implementation and Verification [#구현과-검증]
+
+- [server/ontology.ts](https://github.com/d4d-cydf/Cluevia/blob/main/server/ontology.ts), [server/ontology.test.ts](https://github.com/d4d-cydf/Cluevia/blob/main/server/ontology.test.ts): Basis for extraction, citation, and identification
+- [src/lib/graph-document.ts](https://github.com/d4d-cydf/Cluevia/blob/main/src/lib/graph-document.ts), [src/lib/graph-document.test.ts](https://github.com/d4d-cydf/Cluevia/blob/main/src/lib/graph-document.test.ts): Graph contract
+- [src/lib/claim.ts](https://github.com/d4d-cydf/Cluevia/blob/main/src/lib/claim.ts): Relationship claim field
+
+Next step: [Graph Placement](/en/docs/algorithms/board-layout).

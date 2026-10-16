@@ -1,0 +1,80 @@
+---
+title: "数据验证"
+description: "检查原文引文与本体约束后，构建字段、ID、日期和引用关系一致的图。"
+---
+
+Cluevia 的验证分为**抽取依据检查**与**图数据契约检查**。模型抽取结果须通过两层验证；导入已完成的 JSON 时检查图数据契约。
+
+| 验证器 | 输入 | 检查 |
+| --- | --- | --- |
+| `parseExtraction` | 抽取结果、原文、本体 | 类型、属性与关系约束，引文及对象识别依据 |
+| `parseGraphDocument` | 未知 JSON 值 | 字段、大小、日期、ID 与引用 |
+
+## 比较原始文本和摘取结果 [#원문과-추출-결과를-대조한다]
+
+`server/ontology.ts` 检查引文中的 `documentId` 是否存在于输入资料中，以及对应原文是否精确包含 `quote` 字符串。标识符须存在于引文中；配置为基于证据的主键的值也须单独核查。
+
+例如，原文是 `고객 번호 C-17`，模型却返回标识符 `C-18`，则不能通过检查。即使名称相同，名称本身也不证明两个记录指向同一对象。
+
+保存时，系统记录引文的 UTF-16 起止位置及分析文本的 SHA-256。若同一句话重复出现，则保留候选位置与歧义信息。哈希用于标识文本，不用于证明其真实性。
+
+## 创建允许图表字段的新对象 [#허용된-그래프-필드로-새-객체를-만든다]
+
+`parseGraphDocument` 在运行时检查类型、长度、数量与格式，再仅使用所需字段构建新对象。未知字段不会被复制。字符串先接受长度检查，再移除首尾空白。
+
+```text
+최상위 객체 · 스키마 버전 · 작성 경로 · 그래프 ID
+  → groups / sources / nodes / edges / events / findings 구성
+  → 종류별 ID 집합과 중복 검사
+  → 그룹 · 객체 · 관계 · 출처 참조 검사
+  → 온톨로지 ID·버전 및 나머지 메타데이터 확인
+```
+
+验证遇到首个错误即停止。未使用的可选字段应省略；普通可选字段中的 `null` 不等同于省略。不过，`claim` 内部按契约允许为空的字段可以使用 `null`。
+
+## 使用 ID 集合检查重复与引用 [#id-집합으로-중복과-참조를-검사한다]
+
+| 引用字段 | 对照的 ID 集合 |
+| --- | --- |
+| `node.group` | 组 |
+| `edge.source`, `edge.target`, `event.nodeIds`, `finding.nodeIds` | 对象 |
+| `finding.edgeIds` | 关系 |
+| 所有的 `sourceIds`  | 来源 |
+
+每个数组内部的 ID 不得重复，但不同类型数组之间不执行全局去重。引用数组内部同样禁止重复。
+
+若对象列表中只有 A，而关系端点指向 B，则验证失败，例如返回 `edge 관계ID: 존재하지 않는 ID: B`。允许自环，也允许同一对象对之间存在多条关系。
+
+## 检查日期和扩展的字段 [#날짜와-확장-필드를-확인한다]
+
+日期采用 `YYYY-MM-DD`，或包含秒和时区的 ISO 时间格式。验证时结合正则表达式、`Date.parse` 及将日期部分转换至 UTC 午夜后再转回的检查，排除 `2026-02-30` 等无效日期。若区间结束早于开始，则拒绝该输入。
+
+| 字段 | 规则 |
+| --- | --- |
+| `ontologyId`, `ontologyVersion` | 两者必须同时存在。版本号应为大于或等于 1 的安全整数。 |
+| `source.contentHash`, `source.sourceFamily` | 64 位小写十六进制字符串，符合 SHA-256 格式 |
+| `edge.claim` | 检查主张立场、提出主体、有效期间、发布日期与转引来源 |
+
+时间比较和 [时间轴坐标](/zh/docs/algorithms/timeline) 使用反映时区偏移的绝对时间。
+
+## 单个图形和集成案例之间的边界 [#단일-그래프와-통합-케이스의-경계]
+
+单个 `GraphDocument` 最多允许 200 个对象、500 条关系和 300 个事件。`parseGraphText` 还检查 JSON 的 UTF-8 大小是否不超过 2,000,000 字节。
+
+多个分析记录组成的案例属于独立的服务器投影结果，不会对完整案例重新套用单次抽取的数量限制。`.case.json` 导出格式也不同于普通图 JSON。
+
+导入时先验证原始文档，再将 `origin` 改为 `imported` 后保存。不能靠猜测 ID 或缺失引用绕过验证。
+
+## 复杂性和局限性 [#복잡도와-한계]
+
+设图条目数为 `N`、引用数为 `R`、需要检查或复制的文本量为 `S`，在 Set 查询平均为常数时间的假设下，图契约检查可视为 `O(N + R + S)`。原文引文核查中的字符串搜索成本另计。
+
+验证成功表示结构与引用符合验证规则，并不保证来源真实、推断有效、事实无遗漏或对象合并完全正确。
+
+## 实施和验证 [#구현과-검증]
+
+-  [server/ontology.ts](https://github.com/d4d-cydf/Cluevia/blob/main/server/ontology.ts) ,  [server/ontology.test.ts](https://github.com/d4d-cydf/Cluevia/blob/main/server/ontology.test.ts) :提取，引用和识别的基础
+-  [src/lib/graph-document.ts](https://github.com/d4d-cydf/Cluevia/blob/main/src/lib/graph-document.ts) ,  [src/lib/graph-document.test.ts](https://github.com/d4d-cydf/Cluevia/blob/main/src/lib/graph-document.test.ts) 图合同
+-  [src/lib/claim.ts](https://github.com/d4d-cydf/Cluevia/blob/main/src/lib/claim.ts) 关系主张领域
+
+下一节：[图布局](/zh/docs/algorithms/board-layout)。

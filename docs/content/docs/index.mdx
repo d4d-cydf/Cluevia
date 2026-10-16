@@ -1,0 +1,69 @@
+---
+title: 알고리즘 개요
+description: 주장·증거·추론 규칙을 분리하여 근거의 공백을 진단하는 Cluevia의 기술 문서.
+---
+
+<Abstract keywords="주장 검증 · 증거 요구 · 논리 구조 · 출처 추적 · 공백 보완">
+
+하나의 결론을 검토하려면 자료에 무엇이 기록되어 있는지와 그 기록이 결론을 얼마나 뒷받침하는지를 구분해야 한다. Cluevia는 이러한 구분을 Why-not Tree로 표현하고, Gap Find를 통해 충족되지 않은 조건을 진단한 뒤 Gap Fill로 필요한 보완 자료를 제시한다. 이 문서군은 알고리즘의 개념적 정의, 실행 계약과 구현 범위를 함께 정리한다. 결과를 해석할 때에는 입증 경로의 완성 여부, 지지 수준과 평가 완결성을 각각 확인해야 한다.
+
+</Abstract>
+
+## 문서의 범위
+
+[메인 알고리즘 지침서](/docs/main-algorithm/overview)는 문제 정의에서 방법론·평가 계획·한계까지 이어지는 기술 보고서로 구성되어 있다. 각 상세 명세는 판정 규칙과 예외 조건을 정의하며, 현재 구현 문서는 해당 계약을 실제 모듈·저장 구조·화면과 연결한다. 현재 자료의 공백 진단과 사용자 보완 경로는 구현되어 있으나, 자동 외부 수집과 수치 정책의 실증적 검증까지 완료되었다는 뜻은 아니다.
+
+## 메인 알고리즘
+
+```text
+목표 주장과 사건 범위
+       ↓
+Why-not Tree: 내부는 주장·AND·OR·NOT_SUPPORT, 최하위는 증거 자료
+       ↓
+1-3 현재 자료로 가능한 집합 트리 생성
+1-4 자료 판정 중 지지만 통과
+1-5 사건 메타데이터 일치 검사
+1-6 부모별 중복 자료 식별
+1-7 출처·인용 계보 추적
+1-8 leaf → 부모 → 전체 신뢰도 평가
+       ↓
+공백 사유 + 미니 그래프 + 다음 액션
+       ↓
+Gap Fill → 새 자료·판정 버전 → 재평가
+```
+
+NOT_SUPPORT는 부정 주장을 입증하는 자료들을 AND로 결합한다. 필요한 자료가 없거나 검토를 마치지 못한 상태를 부정 주장의 입증으로 해석하지 않는다.
+
+## 지침서 읽는 순서
+
+| 문서 | 다루는 내용 |
+| --- | --- |
+| [메인 알고리즘 지침서](/docs/main-algorithm/overview) | 확정 요구, 단계·공백·액션의 전체 연결 |
+| [트리와 데이터 계약](/docs/main-algorithm/model) | 자료 형태를 가진 leaf, 주장 연결, enum과 결과 계약 |
+| [Gap Find 단계별 규칙](/docs/main-algorithm/gap-find) | 집합 생성, 부모 연산자에 따른 탈락, 사건 일치와 중복 |
+| [출처 계보와 신뢰도](/docs/main-algorithm/confidence) | 우도비·출처 계수, 반복 종료, OR·AND·공유 근거 계산 |
+| [Gap Fill 액션 지침](/docs/main-algorithm/gap-fill) | 공백별 검색·설명·자료 요청과 체인 완성 전략 3개 |
+| [전체 실행 예제](/docs/main-algorithm/worked-example) | 부족 자료에서 시작해 재검증으로 점수와 공백이 바뀌는 과정 |
+| [구현 순서와 검수 기준](/docs/main-algorithm/implementation) | 의사코드, LLM·코드의 역할, 30개 수용 사례와 미확정 정책 |
+
+## 여섯 가지 공백
+
+| 유형 | 의미 | 보완 방향 |
+| --- | --- | --- |
+| `EVIDENCE_MISSING` | 필수 자료 없음 | 직접 자료 검색, 확보 불가 시 사용자 요청 |
+| `EVIDENCE_INSUFFICIENT` | 해당 주장을 지지하기 부족 | 부족한 사실·조건 설명, 추가 증거 요청 |
+| `EVENT_MISMATCH` | 사건 연결 규칙 불일치 | 충돌 지점과 연결 불가 설명 |
+| `TRUST_WEAK` | 전체 신뢰도 기준 미달 또는 충분함 미확인 | 미니 그래프와 병목 설명, 근거 강화 |
+| `PROVENANCE_UNKNOWN` | 출처 등급 D/E | 원출처 표기 요청 또는 원출처 탐색 |
+| `CHAIN_UNKNOWN` | 평가 완료 후 완성 체인 없음 | 필요한 자료 유형을 포함한 체인 완성 전략 3개 |
+
+## 현재 앱 구현과 함께 읽기
+
+온톨로지 설계·원문 추출·SQLite 저장은 공백 진단에 필요한 자료와 근거 연결을 제공한다. 논리·판정 계약과 추출·저장 계약은 서로 다른 책임을 가지므로 각각의 구현 문서에서 검토한다.
+
+<Cards>
+  <Card title="메인 지침서 시작" href="/docs/main-algorithm/overview" description="Cluevia의 목표 알고리즘과 단계별 구현 기준을 읽습니다." />
+  <Card title="전체 실행 예제" href="/docs/main-algorithm/worked-example" description="자료 누락·부적격·중복·약한 신뢰도를 하나의 사례로 확인합니다." />
+  <Card title="현재 구현 파이프라인" href="/docs/algorithms/current-pipeline" description="온톨로지 설계부터 추출·검증·저장·표시까지의 현재 코드입니다." />
+  <Card title="공개 사례 사용하기" href="/docs/guide/quickstart" description="현재 앱에서 실제로 동작하는 그래프 탐색을 확인합니다." />
+</Cards>

@@ -1,0 +1,76 @@
+---
+title: "Structuring Source Material"
+description: "The process of confirming the scope of analysis, processing tables and documents according to ontology, and then saving only the results with evidence."
+---
+
+Data structuring is divided into **analysis intention → ontology → data processing → basis verification → storage**. Rather than a single call that turns the entire input into a graph at once, it is a server operation that preserves the sections that have been completed and can be executed later.
+
+| input | output | Main implementation |
+| --- | --- | --- |
+| Question, original source material, optional `analysisBrief` | ontology Definition, analysis history, subgraphs and integration cases | `ontology-planner.ts`, `analysis-pipeline.ts`, `analysis-case.ts` |
+
+## 1. Distinguish between analysis intention and basis. [#1-분석-의도와-근거를-구분한다]
+
+The verification step uses previews of up to 10 materials, a total of 12,000 characters or less. If the request is ambiguous, 1–3 questions are asked and checked up to twice. After the user confirms the final scope, he or she proceeds to upload the original and register the job.
+
+`analysisBrief` contains the analysis purpose, scope, and desired results. This is the user's intention and is not used as source to replace the facts of the original text. If there are only questions and no data, only ontology is designed.
+
+If there is an explicit file/date range, `analysis-scope.ts` applies. Date comparisons are applied to the actual ISO date in the specified structured column, and records with unclear dates or disclaimers/corrections/counterevidence are still reviewed. Excluded data will also be preserved as original text and analysis records.
+
+## 2. Examine the entire data and determine ontology [#2-자료-전체를-살펴보고-온톨로지를-정한다]
+
+The server scans the entire text to generate data column, observation type, length statistics and examples, and for general documents, it selects a definitive reservoir sample from the entire section. If the first section, sample, and last section of a short document are the same, duplicates are removed from the design input. Samples are a means of reducing design input and are not guaranteed to contain all rare types. The original text and entire lines are kept and used for future extraction.
+
+The default effort for the ontology design is `medium`. Request object types, properties, primary keys, relationship types, and data mappings with concise prompts and response contracts tailored to the data type. The server populates common fields, verifies definitions and mappings, and uses them as an extraction schema. If the user selects a compatible existing ontology, the design call can be omitted.
+
+If the design times out, the example is shortened and retried once. Verification supplementation is also performed at most once, so schema design calls are limited to 3 times in total. Timeout retries are not applied to cancellation, authentication, or call limit errors.
+
+## 3. Process according to the nature of the data. [#3-자료의-성격에-따라-처리한다]
+
+| material | Processing method |
+| --- | --- |
+| Table with validated column mapping | The server converts each row into a type, attribute, or relationship. |
+| Table description/body column | separate semantic analysis; Pass along the basis for objects that have already been mapped |
+| general document | Divide the original text into sections and extract it as Codex according to the fixed ontology |
+| Decisions that can be expressed with limited options | Use Jev if set, review Codex for uncertain results |
+
+The `evidenceId` assigned by the server distinguishes the original text record. The model is not used to create and fill in business identification keys that are not in the data. Even when analyzing short independent records together, review results for each data are required.
+
+Jev verdict is a candidate to help sort and review. The classification results alone do not confirm the existence of a relationship or that they are the same object. Disclaimers, corrections, secondary citations and complex contexts are passed through the original text review route.
+
+## 4. Verify the results with the original text and contract [#4-원문과-계약으로-결과를-검증한다]
+
+`parseExtraction` checks the type, attribute, and relationship constraints of ontology. The cited resource ID must be in the actual input, and the citation must exist exactly in the original text. Text verification rules also apply to identifiers and evidence-based primary keys.
+
+Validation errors are propagated to the model with limited supplementation requests. The timeout section can be divided into smaller segments and retried. Graphs, text, and checkpoints of completed sections are saved together to avoid duplicate creation when resuming work.
+
+The mere existence of a quotation in the original text does not prove the accuracy of the interpretation. The two layers of verification are separated by [Data Verification](/en/docs/algorithms/validation).
+
+## 5. Connect records into one case [#5-기록을-하나의-케이스로-연결한다]
+
+`analysis-case.ts` collects saved records of the same task. Connections are made based on the stored object ID and ontology range/type, and are not merged just because the display names are the same.
+
+Relationships and events remain on a record-by-record basis. If the properties of the same object are different, we mark the conflict and leave the values ​​of each record. The integration itself computes the saved result without calling a new model.
+
+## Cash and Cost [#캐시와-비용]
+
+The ontology design cache stores up to 50 verified definitions in SQLite by default and can be used even after a server restart. Keys include SHA-256, data metadata, question, confirmed scope, model and effort, design settings, and contract version of the entire original text. Because it scans the entire data, creates a profile, and then queries it, the tasks that Cache skips are calling the design model and designing Jev rules. The read definitions are revalidated and the ontology ID·Version of the new operation is applied to separate the scope of object identification between cases. Schema supplementation due to extraction errors skips the cache, and corrupted or unreadable caches are handled by the new design. Jev The results of rule design failures or incomplete source column mappings are not stored in the cache so they can be redesigned in the next run.
+
+In addition to data, the extraction cache contains keys such as ontology, processing version, model effort, confirmation range, and judgment settings. Results from the last 7 days are reused, and when data is uploaded again, the source ID is reconnected and verified according to the current input. Duplicate requests in progress are merged within the same execution scope.
+
+Processing details are recorded divided into total ontology design time and data profile, model response, schema verification, and Jev rule time, and the number of design cache reuses is displayed. Detailed time does not replace overall design time; runs before adding instrumentation do not have that detailed value.
+
+In one design that maintained the actual 188-character input/question/confirmation range, the time to apply `medium` and a concise response contract/prompt was 84.1 seconds, which was about 31% shorter than the 121.9 seconds of the past `high` run. A cache rerun of the same input finished without a model call in 1.668 ms. This is an observation of a single design and cache lookup, and is not a quality/performance comparison that controls for differences in provider/execution environment load. We do not guarantee the total graph analysis time or any other initial design time. [Measurement range and results](https://github.com/d4d-cydf/Cluevia/blob/main/docs/evaluations/ontology-design-medium-cache.json).
+
+Table conversion is affected by the number of records and mappings, and document processing costs depend on the number of sections, model calls, and retries. Processing all intervals does not guarantee extraction of all facts or discovery of relationships between distant intervals.
+
+## Implementation and Verification [#구현과-검증]
+
+- [server/ontology-planner.ts](https://github.com/d4d-cydf/Cluevia/blob/main/server/ontology-planner.ts): compress design input, sample and retry
+- [server/ontology-design-cache.ts](https://github.com/d4d-cydf/Cluevia/blob/main/server/ontology-design-cache.ts): Persistent cache and capacity limits in proven designs
+- [server/generic-ingest.ts](https://github.com/d4d-cydf/Cluevia/blob/main/server/generic-ingest.ts): Mapping and processing section preparation for each data
+- [server/analysis-pipeline.ts](https://github.com/d4d-cydf/Cluevia/blob/main/server/analysis-pipeline.ts): Extract, Verify, Repartition, Cache
+- [server/analysis-case.ts](https://github.com/d4d-cydf/Cluevia/blob/main/server/analysis-case.ts): Integration of analysis records
+- [server/analysis-cache.test.ts](https://github.com/d4d-cydf/Cluevia/blob/main/server/analysis-cache.test.ts), [server/analysis-case.test.ts](https://github.com/d4d-cydf/Cluevia/blob/main/server/analysis-case.test.ts): Cache and integration result regression testing
+
+More detailed processing policies are in [High-volume processing](https://github.com/d4d-cydf/Cluevia/blob/main/docs/large-data.md) and [Improved analytics](https://github.com/d4d-cydf/Cluevia/blob/main/docs/analysis-improvements.md) in the repository.

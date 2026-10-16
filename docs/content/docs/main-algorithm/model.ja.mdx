@@ -1,0 +1,190 @@
+---
+title: "木構造モデルとデータ契約"
+description: "Why-not Tree、資料形態の証拠リーフ、候補証拠木、データ判定と根拠の欠落記録の具体的な契約。"
+---
+
+資料を一つのノードで表すだけでは、どの主張のどの条件を満たすのかを十分に記述できない。そのため、資料自体、検証する主張、両者のつながりに対する判定を分離する。本節では、この区分に基づいてWhy-not Treeの保存単位と参照制約を定義する。以下の型は概念を説明する設計契約であり、対応する実装契約は`src/types/why-not.ts`にある。拡張資料型や提案方針の実装状況は別途明示する。
+
+## Why-not Treeの意味 [#why-not-tree의-의미]
+
+ルートは検証対象の主張を表す。内部ノードは下位の主張とAND・OR・NOT_SUPPORT演算を表す。最下層の証拠leafは、実際に取得した資料の特定箇所を参照する。未取得の資料は既存のleafとして作成せず、**証拠要件**として残す。
+
+<ResearchDiagram kind="tree" number="M1" />
+
+<Equation number="M1" label={"親主張を構成する前提条件"} tex={String.raw`H=C_1\land C_2=(L_1\lor L_2)\land C_2`} />
+
+ここで親は leaf ではなく **主張 または演算ノード** です。画面上で木に展開しても、ストレージ構造は同じデータ参照を共有するDAGになります。循環する主張依存性は許可しません。別の出典引用グラフでは循環を発見して記録して探索を終了する。
+
+## 資料形態と出典評価の区分 [#자료-형태와-출처-평가의-구분]
+
+| フィールド | 役割 | 例 |
+| --- | --- | --- |
+| `artifactKind` | leafのデータフォーム | `DOCUMENT`, `STRUCTURED_RECORD`, `IMAGE`, `AUDIO`, `VIDEO`, `WEB_PAGE`, `OTHER` |
+| `mimeType`, `format` | 物理ファイル形式 | `text/csv`, PDF, JSONL, PNG |
+| `sourceType` | 発行・生成主体と資料性格 | 元の業務記録、直接観測、再引用記事 |
+| `sourceGrade` | 出典評価評価 | A/B/C/D/Eまたは未評価 |
+| `verdict` | 特定主張を支持するか | `SUPPORTED`など |
+
+データ形式の列挙と評価の詳細な定義は提案です。現在、アプリのオリジナル分析はUTF-8テキスト中心なので、PDF・画像・音声などをleafタイプに設計したと抽出機能まで実装されたわけではない。抽出前には`processingStatus`で待機状態を保存する。
+
+## 論理ノードと証拠要件 [#논리-노드와-증거-요구]
+
+```ts
+type LogicOperator = 'AND' | 'OR' | 'NOT_SUPPORT';
+
+type LogicNode = {
+  id: string;
+  kind: 'claim' | 'requirement';
+  statement: string;
+  operator: LogicOperator;
+  children: string[]; // 논리 노드 또는 evidence binding의 ID
+  eventRuleId: string | null;
+  threshold: number | null; // null이면 별도 하위 임계값 없음
+  negativeOf: string | null; // NOT_SUPPORT가 입증할 부정 대상
+};
+
+type EvidenceNeed = {
+  requirementId: string;
+  targetClaimId: string;
+  acceptableKinds: string[];
+  requiredFields: string[];
+  acceptanceCriteria: string[];
+  eventScopeId: string;
+};
+```
+
+`claim`の子供が空の場合、誤った論理設計です。 `requirement`はまだ資料がないので空いている可能性があり、この時`EVIDENCE_MISSING`で記録する。 ANDの必須requirementを削除して、より弱い主張に変えない。
+
+AND・ORは、どの証拠の組み合わせが十分であるかを事前に説明しなければならない。 「 受領証 ORログ」と書くには、それぞれ単独であるサブ 主張 を満たすかどうかを定義します。 「資料が2つある」という理由でORを自動選択しない。
+
+## NOT_SUPPORTの意味と適用条件 [#not_support의-의미와-적용-조건]
+
+**定義：** NOT_SUPPORTは、否定命題を立証する証拠のAND結合である。
+
+例えば、「締め切り前にキャンセルされていない」を主張するには、対象識別、全体確認期間、キャンセル記録の完全性、該当期間の結果など必要な条件をそれぞれ立証するように分解する。部分ログでキャンセル項目が見つからなかったという理由だけで通過させない。
+
+```text
+NOT_SUPPORT(취소되었다)
+  = AND(대상 일치, 확인 구간 충족, 기록 완전성, 취소 없음의 직접 근거)
+```
+
+<ResearchDiagram kind="negative" number="M2" />
+
+<Equation number="M2" label={"否定命題に必要な条件の組み合わせ"} tex={String.raw`\operatorname{NOT\_SUPPORT}(H)=\bigwedge_{i=1}^{n} C_i^{-}`} />
+
+ここでCᵢ⁻は否定命題を立証するために明示した必須条件である。
+
+この規則は、余事象の確率`1 − P(A)`を計算するNOT演算とは異なる。信頼度も、取得済みの**否定命題を支持する資料**をANDで結合して求める。必須の資料がなければ、根拠の欠落として残す。
+
+## EvidenceとBinding [#evidence와-binding]
+
+Evidenceは資料自体、Bindingはその資料が特定の主張のどんなニーズを支持するかを示す。判定は、データ全体の固定属性の代わりに**binding単位**で保存する。
+
+<ResearchDiagram kind="binding" number="M3" />
+
+```ts
+type Evidence = {
+  id: string;
+  artifactKind: string;
+  contentHash: string;
+  sourceId: string;
+  sourceUrl: string | null;
+  capturedAt: string;
+  processingStatus: 'READY' | 'PENDING' | 'FAILED';
+};
+
+type EvidenceBinding = {
+  id: string;
+  evidenceId: string;
+  parentClaimId: string;
+  requirementId: string;
+  locator: { kind: 'text' | 'row' | 'page' | 'time'; value: string };
+  quote: string | null;
+  decisionId: string | null;
+  eventMetadataId: string | null;
+  evidenceAtomId: string | null;
+};
+```
+
+`locator`はテキストoffset・行ID・ページ・映像時刻などを表現する。実際の実装では、種類別の検証を追加します。 1つの文書が2つの要求を満たすことができますが、2つのbindingが同じ観測を使用する場合、信頼度計算では独立した証拠は2つにカウントされません。
+
+## データ判定列挙と現在の実装の関係 [#자료-판정-enum과-현재-구현의-관계]
+
+以下の列挙は、資料－主張適合性判定の契約です。 **`SUPPORTED`のみ適合性関門を通過**する規則は確定要求だ。
+
+| 値 | 意味 | 1-4処理 |
+| --- | --- | --- |
+| `SUPPORTED` | この区間は対応する子です 主張 を定められた基準だけサポート | 渡す |
+| `REFUTED` | この区間が該当主張に反する内容を提示 | 不適格、反証別途保存 |
+| `INSUFFICIENT` | 関連はありますが、要求した事実を証明できませんでした | 不適格、不十分なフィールドの説明 |
+| `IRRELEVANT` | 該当主張・要求と直接関連なし | 不適格、関係のない理由の説明 |
+| `UNREVIEWED` | 判定が完了しない | まだ通過不可、評価未完了表示 |
+
+判定記録には `bindingId`、`verdict`、`reason`、`supportingLocators`、`missingRequirements`、`evaluator`、`modelVersion`、`promptVersion`、`createdAt` を含める。`SUPPORTED` にも原文の根拠区間と理由が必要である。原文を伴わない自由記述は判定結果として受け入れない。
+
+現在のアプリの`reported/inferred`、`claim.stance`、ユーザーレビュー`supported/disputed/needs-review/unreviewed`は意味が異なります。たとえば、主張「否定の声明があります」は、データ`claim.stance=denied`でサポートできます。現在の列挙型を新しい適合テストに無条件にコピーしないでください。
+
+反証は支持集合から除外するが、診断・画面には維持する。 反証が同じ目標と事件を直接衝突させると、自動確定の代わりに`EVIDENCE_INSUFFICIENT`の`CONTRADICTORY_EVIDENCE`事由で検討対象として残すことを具体化ルールとして置く。
+
+## 候補集合の識別と同等性 [#후보-집합의-식별과-동등성]
+
+候補証拠木はもともとWhy-not Treeで**一つの成立経路を選んだ候補**だ。単純なデータIDセットだけで保存すると、どのrequirementを満たしたかが失われますので、以下を保存します。
+
+```ts
+type WitnessTree = {
+  id: string;
+  treeVersion: string;
+  chosenBranches: Record<string, string[]>;
+  bindingsByRequirement: Record<string, string[]>;
+  evidenceIds: string[];
+  eventConstraintResults: string[];
+  status: 'ACTIVE' | 'REJECTED' | 'PENDING';
+  rejectionGapIds: string[];
+};
+```
+
+同じ資料IDの集合であっても、requirementの連結や事象の役割が異なる場合は、同じ候補に合わない。代表候補から除外したツリーは削除せずに状態と脱落フェーズを記録する。
+
+## ギャップ履歴 [#gap-기록]
+
+```ts
+type GapType =
+  | 'EVIDENCE_MISSING' | 'EVIDENCE_INSUFFICIENT' | 'EVENT_MISMATCH'
+  | 'TRUST_WEAK' | 'PROVENANCE_UNKNOWN' | 'CHAIN_UNKNOWN';
+
+type Gap = {
+  id: string;
+  runId: string;
+  type: GapType;
+  stage: '1-3' | '1-4' | '1-5' | '1-7' | '1-8' | 'FINAL';
+  claimId: string;
+  requirementIds: string[];
+  witnessIds: string[];
+  evidenceIds: string[];
+  reasonCode: string;
+  explanation: string;
+  expected: unknown;
+  observed: unknown;
+  blockingScope: 'ALTERNATIVE' | 'SUBCLAIM' | 'ROOT';
+  causeGapIds: string[];
+  evaluationState: 'COMPLETE' | 'PENDING';
+};
+```
+
+理由文字列だけを残さず、期待値と観測値を一緒に保存します。複数のgapが同時に発生することができ、`CHAIN_UNKNOWN`は詳細gapを上書きせずに`causeGapIds`に接続する。
+
+## 実行と結果のバージョン [#실행과-결과-버전]
+
+一回の実行では `treeVersion`、`evidenceSnapshotId`、`decisionVersion`、`eventRuleVersion`、`trustPolicyVersion` を固定する。実行中に見つかった新しい証拠は次の snapshot の候補とし、元の資料・判定・結果を上書きしない。
+
+<Equation number="M3" label={"1つの実行で固定するバージョンの束"} tex={String.raw`S_t=(v_{\mathrm{tree}},v_{\mathrm{evidence}},v_{\mathrm{decision}},v_{\mathrm{event}},v_{\mathrm{trust}})`} />
+
+結果には、次の3つの値を別々に保存します。
+
+| 値 | 状態 |
+| --- | --- |
+| `evaluationStatus` | `COMPLETE`, `INCOMPLETE`, `FAILED` |
+| `chainStatus` | `COMPLETE_CHAIN_FOUND`, `NO_COMPLETE_CHAIN`, `UNDETERMINED` |
+| `confidence` | スコアまたは区間、計算の仮定、閾値と充足の有無 |
+
+数字が計算できない場合は、`null`と理由を使用してください。未評価を0または1で埋めない。

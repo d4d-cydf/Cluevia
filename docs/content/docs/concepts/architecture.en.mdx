@@ -1,0 +1,53 @@
+---
+title: "Application Architecture"
+description: "It divides the roles of browser analysis requests, server operations and SQLite storage, and integrated case rendering."
+---
+
+Cluevia consists of a React screen, Node API server, and SQLite storage. The documentation site is a separate Next.js·Fumadocs package in `docs/` and can be distributed statically.
+
+## processing layer [#처리-계층]
+
+| hierarchy | implementation | role |
+| --- | --- | --- |
+| Enter request | `HomeScreen.tsx` | Questions/Data/Confirmation Questions/Analysis Scope |
+| HTTP | `server/product-api.ts` | Authentication, Upload, Task·Graph·ontology API |
+| run task | `server/jobs.ts` | Queue, progress, cancellation and resume |
+| ontology design | `server/ontology-planner.ts` | Create definitions and mappings based on material profiles and user intent |
+| data processing | `server/generic-ingest.ts`, `server/analysis-pipeline.ts` | Table conversion, document extraction, Jev judgment and caching |
+| Verification/Save | `server/ontology.ts`, `server/ontology-store.ts` | Original text·schema inspection,object·claim·graph storage |
+| case integration | `server/analysis-case.ts` | Linking records and storage objects of the same operation |
+| screen calculation | `GraphRenderer.tsx`, `graph-exploration.ts` | Search range and graph coordinates |
+
+Design and document extraction uses Codex, and Jev participates in limited adjudication if set. The old Foundry AIP module remains, but is not currently home and the default execution path for the API.
+
+## Lifespan of Analysis Jobs [#분석-작업의-수명]
+
+```text
+범위 확인 → 원문 업로드 → queued → running → 완료 / 실패 / 취소
+                                       │
+                                       └→ 구간별 검증·저장 → 화면 갱신
+```
+
+All tasks are executed one at a time, with a maximum of 5 running/waiting total. Extract worker concurrency within a task is a separate setting. After failure, cancellation, or restart, you can continue running the remaining section from the saved checkpoint.
+
+A task where you only enter a question will only save ontology and will not actually create a graph. Completed partial results are displayed on the analysis screen even before the entire task is completed.
+
+## storage layer [#저장-계층]
+
+| location | content |
+| --- | --- |
+| Server data directory, default `.cluevia/` | SQLite, upload original text, work and records, ontology·graph·evidence |
+| Browser IndexedDB and tab drafts | Temporary copy for recovery of requests/attachments before starting analysis |
+| Browser `localStorage` | Manual card placement, screen states, explicitly selected browser save graphs |
+
+Since the default storage is a server, other browsers connected to the same server also view the saved graph. It is a single shared workspace and does not provide separation of data per user.
+
+## How it runs [#실행-방식]
+
+`npm run dev` and `npm run preview` connect the product API to Vite. After `npm run build`, `npm start` provides the Node server built screen and API together. Avoid running multiple servers using the same data directory at the same time.
+
+If only `dist/` is raised statically, server tasks and storage APIs will not run. `docs/out/` in the document can be served statically without an API. Please refer to [Distribution scope](/en/docs/development/deployment).
+
+## algorithm boundary [#알고리즘-경계]
+
+The meaning of the extraction results is covered in [data structuring](/en/docs/algorithms/extraction), the validity of the original text/references is covered in [Data Verification](/en/docs/algorithms/validation), and the on-screen location and display set are covered in [Graph Placement](/en/docs/algorithms/board-layout) and [Search and Cache](/en/docs/algorithms/exploration).

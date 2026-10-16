@@ -1,0 +1,53 @@
+---
+title: "Edges and Labels"
+description: "Calculate SVG curves based on card boundaries and relationship order, and determine label positions for general, same-column, and self-relationships."
+---
+
+`edgeGeometry` takes one relationship, card coordinates, lanes, and relationship array order and returns the SVG path and label center. If there are no end coordinates, the path will not be created.
+
+## Connect both ends to the card border. [#카드-경계에-양-끝을-연결한다]
+
+If the difference in the center of the card is `(dx, dy)`, add 3px to the half-width and half-height of the card to find the connection position.
+
+```text
+factor = min(94 / max(1, abs(dx)), 40 / max(1, abs(dy)))
+A      = source + (dx, dy) × factor
+B      = target - (dx, dy) × factor
+```
+
+Cards measure 182×74px. For an ordinary relationship, control point C is offset from the midpoint of A and B in a direction perpendicular to AB, producing a quadratic Bézier curve.
+
+```text
+bend = 관계 순번 % 3이 0이면 16, 아니면 -16
+C    = (A + B) / 2 + 수직 단위 벡터 × bend
+P(t) = (1 - t)² A + 2(1 - t)t C + t² B
+label = P(0.5) = (A + 2C + B) / 4
+```
+
+Bending is determined by the order of the entire relationship array instead of the number of identical object pairs. Therefore, parallel relationships in the same direction may share the same path and label position.
+
+## Same heat and magnetic relationship [#같은-열과-자기-관계]
+
+| type | Paths and Labels |
+| --- | --- |
+| Horizontal separation below 1px in Lanes | A cubic curve with control points 125px to the left or right of the cards, selected by index parity. The label uses the control point's x coordinate and the midpoint of the two cards' y coordinates |
+| Self-loop | A cubic curve above the card. Endpoints are offset from the center by x±34, y−37; control points by x±65, y−105 |
+| self relationship label | y−83 from card center |
+
+If the same object has multiple self-relations, use the same loop. After calculating the path, the arrow is placed in the `source → target` direction of the relationship.
+
+## Labeling Rules [#라벨-표시-규칙]
+
+The label is displayed in the SVG `foreignObject` area of 154×22px. If there are fewer than 65 relationships, it will show all of them; if there are more than that, it will only show the labels for the selected relationships and those highlighted with the Key Relationships toggle. The relationship itself is selectable and we also provide a name for the SVG title.
+
+The claim attitude of the relationship with `reported`/`inferred` is reflected in the style of the lines. Denial, withdrawal, and uncertainty status can also be indicated on the label. The display method does not determine whether claim is true.
+
+## Complexity and Limitations [#복잡도와-한계]
+
+If we look at coordinate map lookups in constant average time, the geometric calculation for one relationship is `O(1)`, and for all, it is `O(E)`. Text rendering costs are separate.
+
+The current implementation does not optimize the covering area of cards or other labels or perform navigation to avoid path intersections. In dense graphs, drag objects or read the [narrow your search](/en/docs/algorithms/exploration) rationale.
+
+Implementation: [EdgeGeometry and relational rendering in GraphRenderer.tsx](https://github.com/d4d-cydf/Cluevia/blob/main/src/components/graph/GraphRenderer.tsx). Screen verification: [tests/graph.spec.ts](https://github.com/d4d-cydf/Cluevia/blob/main/tests/graph.spec.ts).
+
+Next step: [Time axis placement](/en/docs/algorithms/timeline).

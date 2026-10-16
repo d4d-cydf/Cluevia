@@ -1,0 +1,69 @@
+---
+title: "ローカル開発"
+description: "アプリとドキュメントを別々にインストール・実行し、関連タイプ検査・ビルド・ブラウザテストを行います。"
+---
+
+アプリはVite・Node API、ドキュメントは別途Fumadocs・Next.jsパッケージです。アプリ開発にはNode.js**22.17以上**を使用します。ドキュメントパッケージのみを実行するときの最小バージョンは22.12です。
+
+## アプリのインストールと実行 [#앱-설치와-실행]
+
+Windows PowerShell と WSL の間で実行する環境にインストールします。
+
+```bash
+npm ci --include=dev --include=optional
+npm run dev
+```
+
+アプリのベースアドレスは`http://127.0.0.1:5173`です。環境を置き換えると、既存のサーバーをシャットダウンし、その環境で`npm ci`を再実行します。現在、アプリには自動再インストールpredevフックはありません。
+
+新しい分析を行う場合は、同じ環境で `npm run codex:login` と `npm run codex:status` を実行する。保存済みグラフと公開事例はモデル接続なしで開ける。環境変数はルートの `.env.example` と [README](https://github.com/d4d-cydf/Cluevia/blob/main/README.md) を参照し、既存の `.env.local` を上書きしない。
+
+## 文書の実行 [#문서-실행]
+
+プロジェクトルートの別の端末で実行します。
+
+```bash
+npm run docs:install
+npm run docs:dev
+```
+
+文書アドレスは`http://127.0.0.1:3001`です。本文は`docs/content/docs/**/*.mdx`、サイドバー順は各`meta.json`、ランディングは`docs/components/home.tsx`で編集します。
+
+文書実行・ビルド・タイプ検査は、必要な実行ファイルと現在のオペレーティングシステムのネイティブモジュールを最初に確認します。未インストールまたはWindows / WSL切り替えを検出すると、docs依存関係を再インストールします。定常状態では再インストールしません。
+
+```bash
+npm run docs:typecheck
+npm run docs:build
+npm run test:docs
+```
+
+`docs:build`は`docs/out/`に静的サイトを作成します。モデルログインまたはAPIキーなしで実行します。 `NEXT_PUBLIC_CLUEVIA_URL`はドキュメントのアプリリンクで、ビルド時に反映される公開設定です。
+
+## アプリのビルドとサーバー [#앱-빌드와-서버]
+
+```bash
+npm run build
+npm start
+```
+
+ビルドはTypeScriptチェック後に`dist/`を生成します。 `npm start`がビルドされた画面とAPIを一緒に提供します。 `npm run preview`はViteプレビューなどの製品APIを実行します。同じデータディレクトリを複数のサーバーで同時に開くことはありません。
+
+## テスト [#테스트]
+
+```bash
+npm test
+npx playwright install chromium
+npm run test:e2e
+```
+
+単位・HTTPテストは契約、原文根拠、保存、作業・キャンセル・再開とAPIを検査します。実際のモデル呼び出しを必要とする別の評価コマンドは、通常のテストとは区別されます。
+
+| 環境変数 | 用途 |
+| --- | --- |
+| `PLAYWRIGHT_BASE_URL` | アプリブラウザのテストに既存のサーバーを使用する |
+| `DOCS_BASE_URL` | 文書テストに既存のサーバーを使用する。静的`docs/out/`サーバーも可能 |
+| `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` | テスト用の Chromium 実行可能ファイルの指定 |
+
+`test:docs`は、ルートにインストールされているPlaywrightと`docs/playwright.config.ts`を使用します。基本的に文書開発サーバーを起動し、検索・文書パス・例・モバイル・テーマを確認します。
+
+アルゴリズム文書を変更するときは、定数・分岐条件・実装リンクを現在のコードと合わせてください。テストによって確認されたケースをすべての入力の保証に拡大するわけではありません。

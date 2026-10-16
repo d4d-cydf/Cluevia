@@ -36,6 +36,22 @@
 .home-account-panel > button { margin-top: 10px; padding: 8px; border: 1px solid #d8c8a2; border-radius: 3px; background: #f6f1e6; color: var(--home-ink); font-size: 12px; cursor: pointer; }
 .home-main { position: relative; flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 16px; }
 .home-case-container { width: 100%; max-width: 780px; }
+.home-background-jobs { margin: 0 0 22px; border: 1px solid #cdbc9d; border-radius: 7px; background: #f6efdfed; overflow: hidden; }
+.home-background-jobs header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 7px 15px; padding: 12px 15px; border-bottom: 1px solid #d7c8ac; }
+.home-background-jobs header > span { display: inline-flex; align-items: center; gap: 7px; color: #645136; font-size: 11px; }
+.home-background-jobs header i { width: 6px; height: 6px; border-radius: 50%; background: #a77343; box-shadow: 0 0 0 3px #a7734312; }
+.home-background-jobs header b { font: 10px var(--mono); color: #946b42; }
+.home-background-jobs header small { color: #847052; font-size: 10px; line-height: 1.7; }
+.home-background-jobs ul { max-height: 220px; margin: 0; padding: 3px 8px; overflow-y: auto; list-style: none; }
+.home-background-jobs li + li { border-top: 1px solid #ddcfb944; }
+.home-background-jobs li a { display: flex; align-items: center; gap: 12px; padding: 10px 7px; color: inherit; text-decoration: none; border-radius: 4px; }
+.home-background-jobs li a:hover { background: #e9dbc466; }
+.home-background-state { flex: none; padding: 4px 6px; border: 1px solid #d6bd99; border-radius: 4px; color: #93613b; font-size: 9px; white-space: nowrap; }
+.home-background-state.is-queued { color: #83735a; border-color: #d4c6af; }
+.home-background-detail { display: flex; flex: 1; flex-direction: column; min-width: 0; gap: 3px; }
+.home-background-detail strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #51412d; font-size: 12px; font-weight: 500; }
+.home-background-detail small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #907a5a; font-size: 10px; line-height: 1.6; }
+.home-background-open { flex: none; color: #9c7e55; font: 15px var(--mono); }
 .home-case { position: relative; padding-top: 32px; }
 .home-intro-folder { position: absolute; z-index: 1; left: calc(50% - 48px); top: calc(50% - 14px); width: 96px; height: 72px; border-radius: 0 8px 8px 8px; background: #d8c8a2; box-shadow: 0 1px 0 rgba(60, 45, 20, .12), 0 8px 18px rgba(60, 45, 20, .18); pointer-events: none; opacity: 1; transform: scale(1); transition: left 520ms cubic-bezier(.2, 0, 0, 1), top 520ms cubic-bezier(.2, 0, 0, 1), width 520ms cubic-bezier(.2, 0, 0, 1), height 520ms cubic-bezier(.2, 0, 0, 1), border-radius 520ms ease, box-shadow 520ms ease, opacity 220ms ease, transform 380ms cubic-bezier(.34, 1.56, .64, 1); }
 .home-phase-0 .home-intro-folder { opacity: 0; transform: scale(.6); }

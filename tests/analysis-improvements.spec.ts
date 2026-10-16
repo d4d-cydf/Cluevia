@@ -15,6 +15,7 @@ async function setup(page: Page, value: GraphDocument) {
   await page.route(`**/api/jobs/${job.id}`, route => route.fulfill({ json: { job } }));
   await mockCase(page, job.id, () => [value]);
   await page.goto(`/analysis/${job.id}`);
+  await page.getByRole('button', { name: 'Board', exact: true }).click();
 }
 
 test('thousand-object case renders a bounded subset while search and export retain the last object', async ({ page }) => {
@@ -54,4 +55,11 @@ test('denied relationship exposes attribution and persists analyst review throug
   await page.getByRole('button', { name: /^Relation: connected/ }).click();
   await expect(panel.getByRole('combobox')).toHaveValue('disputed');
   await expect(panel.getByRole('textbox')).toHaveValue('원문은 소유 사실을 부인하고 있습니다.');
+  const downloaded = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'EXPORT', exact: true }).click();
+  const stream = await (await downloaded).createReadStream();
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream!) chunks.push(Buffer.from(chunk));
+  const exported = JSON.parse(Buffer.concat(chunks).toString());
+  expect(exported.graph.edges[0].review).toMatchObject(payload!);
 });

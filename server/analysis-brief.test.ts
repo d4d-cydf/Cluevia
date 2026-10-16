@@ -12,7 +12,7 @@ import type { GenerationJob } from './jobs.ts';
 import { OntologyStore } from './ontology-store.ts';
 import { parseOntologyDefinition } from './ontology-schema.ts';
 import { designOntology } from './ontology-planner.ts';
-import { ontologyBlueprintSchema, leanOntologyBlueprintSchema } from './ontology-builder.ts';
+import { ontologyPlanningSchema } from './ontology-builder.ts';
 import { readJevConfig } from './jev.ts';
 
 const brief = (): AnalysisBrief => ({ objective: '고용 관계 확인', scope: '2026년의 Acme 소속 인물과 반증', output: '근거가 있는 관계 그래프', answers: [{ question: '대상 조직은?', answer: 'Acme' }] });
@@ -62,7 +62,7 @@ test('confirmed advanced contracts select a capable blueprint schema even when t
     const confirmed = { ...brief(), [field]: '공유 속성과 인터페이스로 객체 유형의 공통 계약을 만들어줘.' };
     const result = await designOntology({ question: '자료에 맞는 구조를 설계해줘', documents: [], analysisBrief: confirmed }, undefined, async candidate => {
       assert.equal(candidate.question, '자료에 맞는 구조를 설계해줘');
-      assert.equal(candidate.schema, ontologyBlueprintSchema, `${field} must be able to request advanced contracts`);
+      assert.equal(candidate.schema, ontologyPlanningSchema({ advanced: true, structured: false }), `${field} must be able to request advanced contracts`);
       assert.ok(candidate.context?.includes(JSON.stringify(confirmed)));
       return advanced;
     }, {}, options);
@@ -72,7 +72,7 @@ test('confirmed advanced contracts select a capable blueprint schema even when t
     assert.equal(result.status, 'draft');
   }
   await designOntology({ question: '자료에 맞는 구조를 설계해줘', documents: [], analysisBrief: brief() }, undefined, async candidate => {
-    assert.equal(candidate.schema, leanOntologyBlueprintSchema, 'ordinary confirmed requests retain the smaller schema');
+    assert.equal(candidate.schema, ontologyPlanningSchema({ advanced: false, structured: false }), 'ordinary confirmed requests retain the smaller schema');
     return definition();
   }, {}, options);
 });

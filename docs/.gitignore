@@ -1,0 +1,11 @@
+node_modules/
+.next/
+.source/
+out/
+*.tsbuildinfo
+next-env.d.ts
+public/brand/
+public/fonts/
+public/examples/
+.env*
+!.env.example

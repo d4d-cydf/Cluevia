@@ -25,6 +25,7 @@ async function mockCommon(page: Page) {
   await mockCase(page, runningJob.id, () => [graph as GraphDocument]);
   await page.route('**/api/system/status', route => route.fulfill({ json: connectedStatus }));
   await page.route('**/api/graphs', route => route.fulfill({ json: { graphs: [] } }));
+  await page.route('**/api/jobs', route => route.fulfill({ json: { jobs: [] } }));
   await page.route('**/api/graphs/graph-product-test', route => route.fulfill({ json: { graph } }));
   await page.route('**/api/graphs/graph-product-test/collection', route => route.fulfill({ json: { jobId: null, graphs: [{ id: graph.id, title: graph.title }], index: 0, total: 1 } }));
 }
@@ -40,7 +41,7 @@ test('source submission opens the analysis workspace and retains its server grap
   await mockCommon(page);
   let submission: unknown;
   let reads = 0;
-  await page.route('**/api/jobs', route => { submission = route.request().postDataJSON(); return route.fulfill({ status: 202, json: { job: { ...runningJob, status: 'queued', stage: 'preparing', message: '작업 대기 중' } } }); });
+  await page.route('**/api/jobs', route => { if (route.request().method() === 'GET') return route.fulfill({ json: { jobs: [] } }); submission = route.request().postDataJSON(); return route.fulfill({ status: 202, json: { job: { ...runningJob, status: 'queued', stage: 'preparing', message: '작업 대기 중' } } }); });
   await page.route('**/api/jobs/job-product-test', route => route.fulfill({ json: { job: ++reads < 2 ? runningJob : { ...runningJob, status: 'completed', stage: 'saving', graphId: graph.id, message: '그래프가 저장되었습니다.' } } }));
   await page.goto('/');
   await expect(page.getByText('분석 엔진 준비됨', { exact: true })).toBeVisible();
@@ -51,9 +52,11 @@ test('source submission opens the analysis workspace and retains its server grap
   await expect(page).toHaveURL('/analysis/job-product-test');
   await expect(page.getByLabel('AI analysis activity', { exact: true })).toBeVisible();
   expect(submission).toEqual({ question, documents: [{ id: 'pasted-source', name: 'Pasted source text', text: sourceText }] });
+  await page.getByRole('button', { name: 'Board', exact: true }).click();
   await expect(page.getByRole('button', { name: 'vessel: Ocean Survey', exact: true })).toBeVisible();
   await expect(page.getByLabel('AI analysis activity', { exact: true })).toHaveAttribute('aria-busy', 'false');
   await page.reload();
+  await page.getByRole('button', { name: 'Board', exact: true }).click();
   await expect(page.getByRole('button', { name: 'vessel: Ocean Survey', exact: true })).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem('cluevia.active-job'))).toBeNull();
   expect(await page.evaluate(() => localStorage.getItem('cluevia.graph.v1.graph-product-test'))).toBeNull();
@@ -65,7 +68,7 @@ test('a legacy question-only job resumes on reload and cancels without opening a
   let cancelled = false;
   let submission: unknown;
   await page.route('**/api/system/status', route => route.fulfill({ json: { ...connectedStatus, activeJobs: started && !cancelled ? [runningJob] : [] } }));
-  await page.route('**/api/jobs', route => { started = true; submission = route.request().postDataJSON(); return route.fulfill({ status: 202, json: { job: runningJob } }); });
+  await page.route('**/api/jobs', route => { if (route.request().method() === 'GET') return route.fulfill({ json: { jobs: [] } }); started = true; submission = route.request().postDataJSON(); return route.fulfill({ status: 202, json: { job: runningJob } }); });
   await page.route('**/api/jobs/job-product-test', route => route.fulfill({ json: { job: cancelled ? { ...runningJob, status: 'cancelled', message: '취소됨' } : runningJob } }));
   await page.route('**/api/jobs/job-product-test/cancel', route => { cancelled = true; return route.fulfill({ json: { job: { ...runningJob, status: 'cancelled', message: '취소됨' } } }); });
   await page.goto('/');
@@ -75,7 +78,7 @@ test('a legacy question-only job resumes on reload and cancels without opening a
   expect(submission).toEqual({ question, documents: [] });
   await page.reload();
   await expect(page).toHaveURL('/analysis/job-product-test');
-  await expect(page.getByLabel('AI analysis activity', { exact: true })).toContainText(question);
+  await expect(page.getByLabel('분석 세션 설명', { exact: true })).toContainText(question);
   await expect(page.getByLabel('AI analysis activity', { exact: true })).toContainText(runningJob.message);
   await page.getByRole('button', { name: '생성 취소', exact: true }).click();
   await expect(page.getByLabel('AI analysis activity', { exact: true })).toContainText('취소됨');
@@ -107,7 +110,7 @@ test('hybrid structured analysis starts without Codex login and shows actual pro
   } }));
   const hybridJob = { ...runningJob, processingMode: 'hybrid', completedChunks: 12, totalChunks: 20, graphIds: [], metrics: { structuredRecords: 12345, deterministicParts: 9, jevRequests: 4, jevInputTokens: 2400, codexCalls: 1, cacheHits: 3, reviewParts: 2 } };
   let submission: unknown;
-  await page.route('**/api/jobs', route => { submission = route.request().postDataJSON(); return route.fulfill({ status: 202, json: { job: hybridJob } }); });
+  await page.route('**/api/jobs', route => { if (route.request().method() === 'GET') return route.fulfill({ json: { jobs: [] } }); submission = route.request().postDataJSON(); return route.fulfill({ status: 202, json: { job: hybridJob } }); });
   await page.route('**/api/jobs/job-product-test', route => route.fulfill({ json: { job: hybridJob } }));
   await page.goto('/');
   await expect(page.getByText('표 데이터 분석 준비됨', { exact: true })).toBeVisible();
@@ -115,12 +118,14 @@ test('hybrid structured analysis starts without Codex login and shows actual pro
   await page.getByText(/^Paste source text/).click();
   await page.getByLabel('Source text', { exact: true }).fill('vessel_name,owner\nOcean Survey,Harbor Company');
   await startUnscopedAnalysis(page);
+  await expect(page).toHaveURL('/analysis/job-product-test');
+  await page.getByRole('button', { name: '사이드바 열기', exact: true }).click();
   const progress = page.getByLabel('AI analysis activity', { exact: true });
   await expect(progress).toContainText('12 / 20 구간 처리');
   const metrics = page.getByLabel('Analysis processing statistics', { exact: true });
   await expect(metrics.locator('div').filter({ has: page.getByText('표 데이터 처리', { exact: true }) })).toContainText('12,345행');
   await expect(metrics.locator('div').filter({ has: page.getByText('Jev 호출', { exact: true }) })).toContainText('4회');
-  await expect(metrics.locator('div').filter({ has: page.getByText('Codex 설계·분석', { exact: true }) })).toContainText('1회');
+  await expect(metrics.locator('div').filter({ has: page.getByText('AI 설계·분석', { exact: true }) })).toContainText('1회');
   await expect(metrics.locator('div').filter({ has: page.getByText('기존 분석 재사용', { exact: true }) })).toContainText('3구간');
   await expect(metrics.locator('div').filter({ has: page.getByText('추가 검토 대상', { exact: true }) })).toContainText('2구간');
   expect(submission).toEqual({ question, documents: [{ id: 'pasted-source', name: 'Pasted source text', text: 'vessel_name,owner\nOcean Survey,Harbor Company' }] });
@@ -143,13 +148,17 @@ test('saved Jev and structured part links open the integrated case and retain re
   await expect(page).toHaveURL('/analysis/job-product-test');
   await expect(page.getByLabel('통합 분석 그래프', { exact: true })).toContainText('2 / 2 기록 처리');
   await page.getByRole('button', { name: 'Lanes', exact: true }).click();
+  await page.getByRole('button', { name: '케이스 정보 보기', exact: true }).click();
+  await page.getByRole('button', { name: '기록 · 2', exact: true }).click();
   await page.getByText('분석 기록 · 2', { exact: true }).click();
   await page.getByRole('button', { name: /기록 2 · Structured source records/ }).click();
   await expect(page.getByLabel('분석 기록 상세', { exact: true })).toContainText('Structured source records');
   await page.reload();
+  await page.getByRole('button', { name: '케이스 정보 보기', exact: true }).click();
   await expect(page.getByLabel('통합 분석 그래프', { exact: true })).toBeVisible();
   await page.goto('/case/graph-structured-part/board');
   await expect(page).toHaveURL('/analysis/job-product-test');
+  await page.getByRole('button', { name: 'Board', exact: true }).click();
   await expect(page.getByRole('button', { name: 'vessel: Ocean Survey', exact: true })).toBeVisible();
 });
 
@@ -196,7 +205,7 @@ test('ontology search opens persisted claims and their source graph without mobi
 
 test('failed extraction keeps the actual error and allows a new attempt', async ({ page }) => {
   await mockCommon(page);
-  await page.route('**/api/jobs', route => route.fulfill({ status: 202, json: { job: runningJob } }));
+  await page.route('**/api/jobs', route => route.request().method() === 'GET' ? route.fulfill({ json: { jobs: [] } }) : route.fulfill({ status: 202, json: { job: runningJob } }));
   await page.route('**/api/jobs/job-product-test', route => route.fulfill({ json: { job: { ...runningJob, status: 'failed', error: '자료에서 확인할 수 없는 인용이 포함되어 저장하지 않았습니다.' } } }));
   await page.goto('/');
   await page.getByLabel('What do you want to find out?', { exact: true }).fill(question);
@@ -215,7 +224,7 @@ test('ordinary versioned JSON is submitted as evidence instead of being mistaken
   await page.route('**/api/documents/upload', route => { uploadedBody = route.request().postDataBuffer()!.toString('utf8'); return route.fulfill({ status: 201, json: { document: { id: 'upload-versioned-json', name: 'evidence.json', bytes: Buffer.byteLength(evidence), characters: evidence.length, chunkCount: 1, createdAt: graph.createdAt } } }); });
   const imports: string[] = [];
   page.on('request', request => { if (new URL(request.url()).pathname === '/api/graphs/import') imports.push(request.method()); });
-  await page.route('**/api/jobs', route => { submission = route.request().postDataJSON(); return route.fulfill({ status: 202, json: { job: runningJob } }); });
+  await page.route('**/api/jobs', route => { if (route.request().method() === 'GET') return route.fulfill({ json: { jobs: [] } }); submission = route.request().postDataJSON(); return route.fulfill({ status: 202, json: { job: runningJob } }); });
   await page.route('**/api/jobs/job-product-test', route => route.fulfill({ json: { job: runningJob } }));
   await page.goto('/');
   await page.getByLabel('What do you want to find out?', { exact: true }).fill(question);
@@ -251,7 +260,7 @@ test('a source larger than 2MB uploads all bytes and exposes its records in one 
     uploaded = route.request().postDataBuffer();
     return route.fulfill({ status: 201, json: { document: { id: 'upload-large-file', name: '대형자료.json', bytes: evidence.byteLength, characters: evidence.length, chunkCount: totalChunks, createdAt: graph.createdAt } } });
   });
-  await page.route('**/api/jobs', route => { submission = route.request().postDataJSON(); return route.fulfill({ status: 202, json: { job: { ...runningJob, completedChunks: 0, totalChunks, emptyChunks: 0, graphIds: [], currentSource: '대형자료.json' } } }); });
+  await page.route('**/api/jobs', route => { if (route.request().method() === 'GET') return route.fulfill({ json: { jobs: [] } }); submission = route.request().postDataJSON(); return route.fulfill({ status: 202, json: { job: { ...runningJob, completedChunks: 0, totalChunks, emptyChunks: 0, graphIds: [], currentSource: '대형자료.json' } } }); });
   await page.route('**/api/jobs/job-product-test', route => route.fulfill({ json: { job: { ...runningJob, status: 'completed', stage: 'saving', graphId: graph.id, graphIds: [graph.id, secondGraph.id], completedChunks: totalChunks, totalChunks, emptyChunks: totalChunks - 2 } } }));
   await page.route('**/api/graphs/graph-product-test/collection', route => route.fulfill({ json: { ...collection, index: 0 } }));
   await page.route('**/api/graphs/graph-product-part-two', route => route.fulfill({ json: { graph: secondGraph } }));
@@ -262,15 +271,19 @@ test('a source larger than 2MB uploads all bytes and exposes its records in one 
   await expect(page.getByRole('list', { name: 'Attached files' })).toContainText('대형자료.json');
   await startUnscopedAnalysis(page);
   await expect(page).toHaveURL('/analysis/job-product-test');
+  await page.getByRole('button', { name: 'Board', exact: true }).click();
   await expect(page.getByRole('button', { name: 'vessel: Ocean Survey', exact: true })).toBeVisible();
   expect(uploaded).toEqual(evidence);
   expect(submission).toEqual({ question, documents: [], uploadIds: ['upload-large-file'] });
   await page.goto('/case/graph-product-test/board');
   await expect(page).toHaveURL('/analysis/job-product-test');
   await expect(page.getByLabel('통합 분석 그래프', { exact: true })).toContainText(`${totalChunks} / ${totalChunks} 기록 처리`);
+  await page.getByRole('button', { name: '케이스 정보 보기', exact: true }).click();
+  await page.getByRole('button', { name: `기록 · ${totalChunks}`, exact: true }).click();
   await page.getByText(`분석 기록 · ${totalChunks}`, { exact: true }).click();
   await page.getByRole('button', { name: /기록 2 · Later source connections/ }).click();
   await expect(page.getByLabel('분석 기록 상세', { exact: true })).toContainText('Later source connections');
+  await page.getByRole('button', { name: 'Board', exact: true }).click();
   await expect(page.getByRole('button', { name: 'vessel: Ocean Survey', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Lanes', exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
@@ -294,7 +307,7 @@ test('upload retry reuses completed files and cancelled analysis can resume its 
     if (name === 'second.txt' && secondAttempts++ === 0) return route.fulfill({ status: 500, json: { error: 'second.txt 전송에 실패했습니다. 다시 시도해주세요.' } });
     return route.fulfill({ status: 201, json: { document: { id: `upload-${name}`, name, bytes: 50, characters: 50, chunkCount: name === 'first.txt' ? 1 : 2, createdAt: graph.createdAt } } });
   });
-  await page.route('**/api/jobs', route => route.fulfill({ status: 202, json: { job: partialJob } }));
+  await page.route('**/api/jobs', route => route.request().method() === 'GET' ? route.fulfill({ json: { jobs: [] } }) : route.fulfill({ status: 202, json: { job: partialJob } }));
   await page.route('**/api/jobs/job-product-test', route => route.fulfill({ json: { job: wasCancelled && !resumed ? { ...partialJob, status: 'cancelled', resumable: true, message: '남은 구간의 분석을 중단했습니다.' } : { ...partialJob, message: resumed ? '저장된 자료의 다음 구간부터 분석합니다.' : partialJob.message } } }));
   await page.route('**/api/jobs/job-product-test/cancel', route => { wasCancelled = true; return route.fulfill({ json: { job: { ...partialJob, status: 'cancelled', resumable: true, message: '남은 구간의 분석을 중단했습니다.' } } }); });
   await page.route('**/api/jobs/job-product-test/resume', route => { resumed = true; return route.fulfill({ status: 202, json: { job: { ...partialJob, resumable: false, message: '저장된 자료의 다음 구간부터 분석합니다.' } } }); });
@@ -310,6 +323,7 @@ test('upload retry reuses completed files and cancelled analysis can resume its 
   expect(uploads).toEqual(['first.txt', 'second.txt', 'second.txt']);
   await page.getByRole('button', { name: '생성 취소', exact: true }).click();
   const progress = page.getByLabel('AI analysis activity', { exact: true });
+  await page.getByRole('button', { name: 'Board', exact: true }).click();
   await expect(page.getByRole('button', { name: 'vessel: Ocean Survey', exact: true })).toBeVisible();
   await expect(progress).toHaveAttribute('aria-busy', 'false');
   await expect(page.getByRole('button', { name: '남은 구간 이어서 분석', exact: true })).toBeVisible();
@@ -349,7 +363,7 @@ test('long pasted evidence uses the complete uploaded text without the old texta
   let uploaded = '';
   let submission: unknown;
   await page.route('**/api/documents/upload', route => { uploaded = route.request().postDataBuffer()!.toString('utf8'); return route.fulfill({ status: 201, json: { document: { id: 'upload-long-paste', name: 'Pasted source text.txt', bytes: evidence.length, characters: evidence.length, chunkCount: 3, createdAt: graph.createdAt } } }); });
-  await page.route('**/api/jobs', route => { submission = route.request().postDataJSON(); return route.fulfill({ status: 202, json: { job: runningJob } }); });
+  await page.route('**/api/jobs', route => { if (route.request().method() === 'GET') return route.fulfill({ json: { jobs: [] } }); submission = route.request().postDataJSON(); return route.fulfill({ status: 202, json: { job: runningJob } }); });
   await page.route('**/api/jobs/job-product-test', route => route.fulfill({ json: { job: runningJob } }));
   await page.goto('/');
   await page.getByLabel('What do you want to find out?', { exact: true }).fill(question);

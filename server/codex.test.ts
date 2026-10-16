@@ -39,6 +39,7 @@ if (args.includes('--help')) {
       writeFileSync(outputPath, JSON.stringify({
         ok: true, cwd: process.cwd(), args, question: data.question,
         document: data.documents[0]?.text ?? null, schema, purposeIsDesign: input.includes("bounded ontology schema designer"),
+        purposeIsReport: input.includes("final case report from a fixed"), purposeIsExtraction: input.includes("bounded document-to-ontology extractor"), claimContract: input.includes("CLAIM CONTRACT:"), reportPreservesAssessments: input.includes("INSUFFICIENT/IRRELEVANT/UNREVIEWED must not become support"),
         inheritedSecret: process.env.CLUEVIA_TEST_UNRELATED_SECRET ?? null,
       }));
       console.log(JSON.stringify({type: 'turn.completed'}));
@@ -53,6 +54,12 @@ const base: CodexInput = {
   schema: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'], additionalProperties: false },
 };
 const config = { bin: fakeCli, timeoutMs: 5000 };
+
+test('case reports use the dedicated evidence-aware role without extraction instructions and permit no-source gap reports', async () => {
+  const result = await runCodex({ ...base, purpose: 'case-report', documents: [] }, config) as Record<string, unknown>;
+  assert.equal(result.purposeIsReport, true); assert.equal(result.purposeIsExtraction, false);
+  assert.equal(result.claimContract, false); assert.equal(result.reportPreservesAssessments, true); assert.equal(result.document, null);
+});
 
 test('stdin extraction uses isolated cwd, explicit schema, no shell, no unrelated backend secrets', async () => {
   process.env.CLUEVIA_TEST_UNRELATED_SECRET = 'do-not-inherit';
@@ -75,22 +82,22 @@ test('stdin extraction uses isolated cwd, explicit schema, no shell, no unrelate
     assert.ok(args.includes('web_search="disabled"'));
     assert.ok(args.includes('mcp_servers={}'));
     assert.equal(args[args.indexOf('--model') + 1], 'gpt-6.1-sol');
-    assert.ok(args.includes('model_reasoning_effort="xhigh"'));
+    assert.ok(args.includes('model_reasoning_effort="high"'));
     assert.equal(args.at(-1), '-');
     assert.equal(progress.length, 2);
   } finally { delete process.env.CLUEVIA_TEST_UNRELATED_SECRET; }
 });
 
 test('stage defaults and explicit overrides reach the subprocess reasoning flag', async () => {
-  const defaults = readProductConfig(process.cwd(), { CODEX_REASONING_EFFORT: 'xhigh' }).codex;
-  for (const [purpose, expected] of [['ontology-design', 'high'], ['clarification', 'medium'], ['jev-planning', 'xhigh'], ['extraction', 'xhigh'], ['case-chat', 'xhigh']] as const) {
+  const defaults = readProductConfig(process.cwd(), { CLUEVIA_MODEL_PROVIDER: 'codex', CODEX_REASONING_EFFORT: 'high' }).codex;
+  for (const [purpose, expected] of [['ontology-design', 'medium'], ['clarification', 'medium'], ['jev-planning', 'high'], ['extraction', 'high'], ['case-chat', 'high']] as const) {
     for (const settings of [{}, defaults]) {
       const result = await runCodex({ ...base, purpose }, { ...settings, ...config }) as { args: string[] };
       assert.ok(result.args.includes(`model_reasoning_effort="${expected}"`), purpose);
     }
   }
-  const overridden = readProductConfig(process.cwd(), { CODEX_REASONING_EFFORT: 'max', CODEX_ONTOLOGY_EFFORT: 'medium', CODEX_CLARIFICATION_EFFORT: 'high', CODEX_JEV_PLANNING_EFFORT: 'high' }).codex;
-  for (const [purpose, expected] of [['ontology-design', 'medium'], ['clarification', 'high'], ['jev-planning', 'high'], ['extraction', 'max']] as const) {
+  const overridden = readProductConfig(process.cwd(), { CLUEVIA_MODEL_PROVIDER: 'codex', CODEX_REASONING_EFFORT: 'max', CODEX_ONTOLOGY_EFFORT: 'high', CODEX_CLARIFICATION_EFFORT: 'high', CODEX_JEV_PLANNING_EFFORT: 'high' }).codex;
+  for (const [purpose, expected] of [['ontology-design', 'high'], ['clarification', 'high'], ['jev-planning', 'high'], ['extraction', 'max']] as const) {
     const result = await runCodex({ ...base, purpose }, { ...overridden, ...config }) as { args: string[] };
     assert.ok(result.args.includes(`model_reasoning_effort="${expected}"`), purpose);
   }

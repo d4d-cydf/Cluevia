@@ -1,0 +1,59 @@
+{
+  "model": "gpt-6.1-sol",
+  "scope": "Ontology design and schema validation only",
+  "input": {
+    "evidenceCharacters": 188,
+    "sameOriginalInputQuestionAndBrief": true,
+    "sourceTextAndIdentifiersOmitted": true
+  },
+  "baseline": {
+    "kind": "Historical production run",
+    "effort": "high",
+    "designMs": 121903.6193
+  },
+  "current": {
+    "effort": "medium",
+    "changes": [
+      "Compact source-specific response schema",
+      "Concise planning prompt and duplicate short-text removal",
+      "Validated ontology design cache"
+    ],
+    "fresh": {
+      "modelCalls": 1,
+      "elapsedMs": 84075.1172,
+      "metrics": {
+        "designMs": 84073.7599,
+        "ontologyProfileMs": 1.6152,
+        "ontologyModelMs": 84068.8006,
+        "ontologyValidationMs": 1.2653,
+        "codexRunMs": 84068.8006,
+        "codexInputTokens": 13785,
+        "codexOutputTokens": 4986,
+        "codexCachedInputTokens": 0
+      },
+      "validatedObjectTypes": 8,
+      "validatedLinkTypes": 18
+    },
+    "identicalCachedRerun": {
+      "modelCalls": 0,
+      "elapsedMs": 1.668,
+      "metrics": {
+        "designMs": 1.6548,
+        "ontologyProfileMs": 0.1711,
+        "ontologyCacheHits": 1
+      },
+      "validatedObjectTypes": 8,
+      "validatedLinkTypes": 18
+    }
+  },
+  "observedDesignTimeReductionPercent": 31.0326,
+  "limitations": [
+    "One fresh real model call and one identical cached rerun; this is not a controlled performance benchmark.",
+    "The baseline is a historical run. Provider load, runtime load, execution order and other conditions can affect elapsed time.",
+    "Effort, response schema and prompt changed together, so the observed difference cannot be attributed to effort alone.",
+    "Schema validation does not establish semantic accuracy or equivalence to the historical ontology.",
+    "Full evidence extraction and graph analysis were not run in this measurement.",
+    "The cached rerun avoids model calls for an identical validated design input; it does not predict the latency of new or changed inputs.",
+    "These results do not guarantee that other initial design calls complete in approximately 84 seconds."
+  ]
+}

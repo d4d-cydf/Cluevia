@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
 import type { CodexConfig } from './codex.ts';
-import { DEFAULT_CODEX_MODEL, DEFAULT_CODEX_EFFORT, DEFAULT_CODEX_STAGE_EFFORTS } from './codex.ts';
+import { DEFAULT_CODEX_MODEL, DEFAULT_CLAUDE_MODEL, DEFAULT_CODEX_EFFORT, DEFAULT_CODEX_STAGE_EFFORTS } from './codex.ts';
 import { readJevConfig } from './jev.ts';
 import type { JevConfig } from './jev.ts';
 
@@ -17,6 +17,10 @@ export interface ProductConfig {
 }
 
 export function readProductConfig(root: string, environment: Record<string, string | undefined> = process.env): ProductConfig {
+  const provider = environment.CLUEVIA_MODEL_PROVIDER?.trim() || 'claude';
+  if (provider !== 'claude' && provider !== 'codex') throw new Error('CLUEVIA_MODEL_PROVIDER must be claude or codex.');
+  const model = provider === 'claude' ? environment.CLAUDE_MODEL?.trim() || DEFAULT_CLAUDE_MODEL : environment.CODEX_MODEL?.trim() || DEFAULT_CODEX_MODEL;
+  const bin = (provider === 'claude' ? environment.CLAUDE_BIN : environment.CODEX_BIN)?.trim() || undefined;
   const timeout = Number(environment.CODEX_TIMEOUT_MS || 180_000);
   if (!Number.isFinite(timeout) || timeout < 10_000 || timeout > 600_000) throw new Error('CODEX_TIMEOUT_MS must be between 10000 and 600000.');
   const ontologyTimeout = Number(environment.CODEX_ONTOLOGY_TIMEOUT_MS || timeout);
@@ -43,7 +47,7 @@ export function readProductConfig(root: string, environment: Record<string, stri
     root,
     dataDir: resolve(root, environment.CLUEVIA_DATA_DIR || '.cluevia'),
     accessToken,
-    codex: { bin: environment.CODEX_BIN?.trim() || undefined, model: environment.CODEX_MODEL?.trim() || DEFAULT_CODEX_MODEL, effort: effort as CodexConfig['effort'], timeoutMs: timeout, ontologyTimeoutMs: ontologyTimeout, concurrency: bounded('CODEX_CONCURRENCY', 2, 8), jobConcurrency: bounded('CLUEVIA_JOB_CONCURRENCY', 2, 4), efforts },
+    codex: { provider, argsFileTransport: provider === 'claude' && environment.CLAUDE_ARGS_FILE_TRANSPORT === 'true', bin, model, effort: effort as CodexConfig['effort'], timeoutMs: timeout, ontologyTimeoutMs: ontologyTimeout, concurrency: bounded('CODEX_CONCURRENCY', 2, 8), jobConcurrency: bounded('CLUEVIA_JOB_CONCURRENCY', 2, 4), efforts },
     jev: readJevConfig(environment),
     ontologyPlanning: true,
     seedExample: environment.CLUEVIA_SEED_EXAMPLE !== 'false',

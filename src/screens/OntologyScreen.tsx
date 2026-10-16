@@ -96,7 +96,7 @@ export default function OntologyScreen() {
   const chooseDefinition = (id: string) => { setType(''); setQuery(''); setParams(id ? { definition: id } : {}); };
 
   return <div className="onto-screen">
-    <header className="onto-header"><div className="onto-header-left"><CaseSidebarToggle /><Link to="/" className="onto-brand" aria-label="Cluevia home"><BrandLogo /></Link></div><span className="onto-header-title">WORKSPACE / ONTOLOGY</span><Link className="onto-new-case" to="/">+ NEW CASE</Link></header>
+    <header className="onto-header"><div className="onto-header-left"><CaseSidebarToggle /><Link to="/" className="onto-brand" aria-label="Cluevia home"><BrandLogo /></Link></div><span className="onto-header-title">WORKSPACE / ONTOLOGY</span><Link className="onto-new-case" to="/new">+ NEW CASE</Link></header>
     <main className="onto-main">
       <section className="onto-intro"><div><span className="onto-eyebrow">YOUR SHARED KNOWLEDGE</span><h1>Knowledge, connected.</h1><p>자료마다 설계한 객체 유형과 관계, 그 구조에 저장된 실제 근거를 함께 살펴보세요.</p></div><button type="button" className="onto-refresh" onClick={() => setRefresh(value => value + 1)}>새로고침 ↻</button></section>
       {locked && <form className="onto-unlock" onSubmit={event => void unlock(event)}><label htmlFor="ontology-workspace-key">워크스페이스 접속 키</label><div><input type="password" id="ontology-workspace-key" value={accessKey} onChange={event => setAccessKey(event.target.value)} required autoComplete="off" /><button type="submit" disabled={unlocking}>{unlocking ? '연결 중…' : '연결'}</button></div><small>접속 키는 현재 탭에서만 보관합니다.</small></form>}

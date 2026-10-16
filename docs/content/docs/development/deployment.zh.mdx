@@ -1,0 +1,49 @@
+---
+title: "部署范围"
+description: "区分需要 Node 服务器的应用与可独立静态部署的文档网站。"
+---
+
+## 运行应用程序和API [#앱과-api-실행]
+
+在 Node.js 22.17 或更高版本中安装和构建根依赖性。
+
+```bash
+npm ci --include=dev
+npm run build
+npm start
+```
+
+`server/index.ts` 同时提供 `dist/` 中的界面与产品 API。默认数据目录为 `.cluevia/`，可通过 `CLUEVIA_DATA_DIR` 修改。重新部署时须保留该目录，且不得让多个服务器同时使用同一路径。
+
+`npm run dev` 与 `npm run preview` 也使用相同的产品 API 和存储。仅静态部署 `dist/` 时，本体设计、分析任务和服务器保存功能不会运行。
+
+## 连接设置 [#접속-설정]
+
+`npm start` 的主机与端口分别由 `CLUEVIA_HOST`、`PORT` 指定。局域网运行时，设置 `CLUEVIA_HOST=0.0.0.0` 与 `CLUEVIA_ACCESS_TOKEN`，并在网页输入连接密钥。Vite 端口另行指定，例如 `npm run dev -- --port 5173 --strictPort`。
+
+未配置连接密钥时，API 只允许实际来自本机回环的连接。应用是共享工作区，不提供按用户隔离的数据或角色权限。互联网运行需要 HTTPS 与经过认证的访问入口。
+
+新分析需要执行账户已登录 Codex 且能够访问模型。Jev 为可选项。详细变量与运行范围见项目 [README](https://github.com/d4d-cydf/Cluevia/blob/main/README.md)。
+
+## 文档静态部署 [#문서-정적-배포]
+
+```bash
+npm run docs:install
+npm run docs:build
+```
+
+将 `docs/out/` 部署为网站根目录。文档不需要独立 Node 服务器、分析 API 或模型凭据。
+
+| 要求 | 提供文件 |
+| --- | --- |
+| `/` | `docs/out/index.html` |
+| `/docs/.../` | 该目录中的 `index.html` |
+| `/search-index.json` | 生成的搜索索引 JSON  |
+
+服务器应提供目录索引，不应使用将全部请求重写至首页的 SPA 回退。若搜索 JSON 被改写为 HTML，搜索将无法工作。
+
+应用链接由构建环境或 `docs/.env.local` 中的 `NEXT_PUBLIC_CLUEVIA_URL` 指定，默认值为 `http://127.0.0.1:5173`。这是公开配置，不应写入秘密值；修改地址后须重新构建。
+
+## 数据备份 [#데이터-백업]
+
+关闭服务器后备份完整数据目录。原文、数据库与分析记录须一并保留；SQLite 使用 WAL 时，应避免仅复制单个数据库文件。图导出与整合快照的范围见[保存与导入](/zh/docs/guide/import-export)。

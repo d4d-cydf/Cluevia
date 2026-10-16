@@ -1,4 +1,32 @@
-# Codex extraction wrapper
+# Bounded model execution
+
+Cluevia now defaults to **Claude Sonnet 5.5** (`claude-sonnet-5-5`). `server/codex.ts` retains the shared input/effort contract and dispatches to `server/claude.ts` when `CLUEVIA_MODEL_PROVIDER=claude`. The Codex adapter below remains available through `CLUEVIA_MODEL_PROVIDER=codex`.
+
+## Claude configuration
+
+Install [Claude Code](https://code.claude.com/docs/en/setup) and run `claude auth login` on the server's OS and user account. Set these values in `.env.local`, preserving other settings, then restart the server:
+
+```dotenv
+CLUEVIA_MODEL_PROVIDER=claude
+CLAUDE_MODEL=claude-sonnet-5-5
+CLAUDE_BIN=
+CODEX_REASONING_EFFORT=high
+CODEX_EXTRACTION_EFFORT=high
+CODEX_CHAT_EFFORT=high
+CODEX_JEV_PLANNING_EFFORT=high
+CODEX_ONTOLOGY_EFFORT=medium
+CODEX_CLARIFICATION_EFFORT=medium
+```
+
+The existing `CODEX_*_EFFORT`, timeout and concurrency keys apply to both providers. Why-not evaluation uses the global effort. No effort is silently remapped and no fallback model is selected. Changing the provider/model/effort separates cached analysis results.
+
+Claude receives the validated prompt through stdin and returns schema-constrained `structured_output`. Each invocation uses an isolated temporary directory, disabled tools/MCP/custom instructions/hooks/skills, no session persistence, bounded output, deadline and process-tree cancellation. `StructuredOutput` is permitted only as the CLI response formatter. Source quotations and ontology references still pass server validation before persistence. No private thinking text is exposed. [CLI reference](https://code.claude.com/docs/en/cli-reference).
+
+`CLAUDE_ARGS_FILE_TRANSPORT=true` is only for a custom launcher implementing `--cluevia-args-file <path>`; leave it unset for normal Claude CLI installations. Native Windows CLI command-line size limits are reported explicitly. The current local deployment uses an ignored Windows-to-WSL launcher with heartbeat cleanup, preserving the existing WSL login without copying credentials.
+
+Verification: adapter tests cover isolation, structured responses, Unicode, errors, usage, cancellation and timeout. A live Sonnet 5.5 `high` request through the deployed Windows-to-WSL path returned the exact color from a synthetic source; cancellation returned `CODEX_CANCELLED` and left no worker. Those checks do not modify saved cases.
+
+## Optional Codex adapter
 
 Cluevia runs the installed Codex CLI on the backend to extract a proposed ontology from supplied text. The server validates the proposal, compiles the graph and persists it in its workspace. The browser never runs Codex or receives its credentials.
 
@@ -24,9 +52,10 @@ Configure optional values in `.env.local`, then restart the server:
 ```dotenv
 # Blank: use node_modules/@openai/codex/bin/codex.js, then fall back to PATH.
 CODEX_BIN=
-# Blank: use the CLI's default model. Set a model your account can access.
+# Blank: use the configured Codex default. Set a model your account can access.
 CODEX_MODEL=gpt-6.1-sol
-CODEX_REASONING_EFFORT=xhigh
+CLUEVIA_MODEL_PROVIDER=codex
+CODEX_REASONING_EFFORT=high
 # Milliseconds per extraction call. Server accepts 10000–600000.
 CODEX_TIMEOUT_MS=180000
 ```
@@ -77,4 +106,4 @@ A real authenticated Linux Codex CLI invocation also returned the expected vesse
 
 A native Windows live check used the bundled CLI and the same ontology schema. Although the local CLI reported a stored ChatGPT login, the provider request returned an authentication failure (`CODEX_AUTH`). The wrapper surfaced the login guidance without exposing raw diagnostics; successful native Windows model generation remains to be verified after refreshing that account's login. Unit-test success and `login status` do not establish live provider access.
 
-Case chat uses the same bounded Codex process with purpose `case-chat`. The server supplies only the selected case’s retrieved graph context, source excerpts and recent conversation, validates quotation references, and persists the result. Tools remain disabled. Defaults are `gpt-6.1-sol` and `xhigh`; both are explicitly passed to the CLI.
+Case chat uses the same bounded Codex process with purpose `case-chat`. The server supplies only the selected case’s retrieved graph context, source excerpts and recent conversation, validates quotation references, and persists the result. Tools remain disabled. Codex defaults are `gpt-6.1-sol` and `high`; both are explicitly passed to the CLI.

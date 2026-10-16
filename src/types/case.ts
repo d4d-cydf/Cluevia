@@ -1,5 +1,5 @@
 export type ObjectGroup = 'domain' | 'infra' | 'artifact' | 'money';
-export type WorkspaceView = 'board' | 'lanes' | 'timeline';
+export type WorkspaceView = 'overview' | 'board' | 'lanes';
 
 export interface CaseObject {
   id: string;

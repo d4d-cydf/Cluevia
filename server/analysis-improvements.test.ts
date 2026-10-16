@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { WorkPool } from './work-pool.ts';
@@ -106,6 +107,53 @@ test('preparation warms a bounded window and saves graphs before later extractio
   for (let attempt = 0; attempt < 300 && manager.get(job.id)!.status === 'running'; attempt++) await delay(5);
   assert.equal(manager.get(job.id)!.status, 'completed', manager.get(job.id)!.error);
   assert.equal(manager.get(job.id)!.graphCount, 6);
+});
+
+test('one worker begins extraction during preparation without repeating or skipping an uploaded part', async t => {
+  const store = new OntologyStore(':memory:');
+  const texts = Array.from({ length: 4 }, (_, index) => `${input.documents[0].text} Uploaded record ${index}.`);
+  let reads = 0; let active = 0; let peak = 0;
+  const calls: { text: string; reads: number }[] = [];
+  const uploads = {
+    get: (id: string) => ({ id, name: 'source.txt', bytes: 1000, characters: 1000, chunkCount: texts.length, createdAt: '' }),
+    getChunk: (id: string, index: number) => { reads++; return { id: `${id}-${index}`, name: `source.txt · part ${index + 1}`, text: texts[index], identityScope: id }; },
+  };
+  const manager = new JobManager(store, { concurrency: 1 }, async request => {
+    calls.push({ text: request.documents[0].text, reads }); active++; peak = Math.max(peak, active);
+    try { await delay(5); return extracted(request); } finally { active--; }
+  }, uploads, {});
+  t.after(async () => { await manager.close(); store.close(); });
+  const created = manager.create({ ...input, documents: [], uploadIds: ['upload'] });
+  for (let attempt = 0; attempt < 300 && ['queued', 'running'].includes(manager.get(created.id)!.status); attempt++) await delay(5);
+  const job = manager.get(created.id)!;
+  assert.equal(job.status, 'completed', job.error);
+  assert.ok(calls[0].reads < texts.length, 'the first model call overlaps preparation of later uploads');
+  assert.deepEqual(calls.map(call => call.text), texts, 'warmup must share its extraction with the saving worker');
+  assert.equal(peak, 1); assert.equal(reads, texts.length);
+  assert.equal(job.completedChunks, texts.length); assert.equal(job.graphCount, texts.length);
+});
+
+test('long-document preparation preserves complete text, stable source identity and excerpt IDs', async t => {
+  const store = new OntologyStore(':memory:'); t.after(() => store.close());
+  const pipeline = new AnalysisPipeline(store.db, {}, async () => { throw new Error('Preparation must not call a model.'); }, undefined, {});
+  const document = { id: 'long-source', name: 'long-source.txt', text: 'Aster synthetic source record 🌊\n'.repeat(4_000) };
+  const total = await pipeline.prepare('long-document', { ...input, documents: [document] }, controller().signal, () => {});
+  const scope = `inline-${createHash('sha256').update(document.text).digest('hex')}`;
+  const stem = `text-${createHash('sha256').update(document.id).digest('hex').slice(0, 24)}`;
+  assert.ok(total > 3);
+  let reconstructed = '';
+  for (let index = 1; index <= total; index++) {
+    const part = pipeline.getPart('long-document', index).documents[0];
+    assert.equal(part.identityScope, scope); assert.equal(part.id, `${stem}-${index}`);
+    assert.ok(part.text.length <= 30_000);
+    if (index === 1) reconstructed = part.text;
+    else {
+      const overlap = reconstructed.endsWith(part.text.slice(0, 201)) ? 201 : 200;
+      assert.ok(reconstructed.endsWith(part.text.slice(0, overlap)));
+      reconstructed += part.text.slice(overlap);
+    }
+  }
+  assert.equal(reconstructed, document.text);
 });
 
 test('a wholly excluded case completes without model calls and retains searchable originals', async t => {

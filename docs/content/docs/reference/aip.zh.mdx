@@ -1,0 +1,22 @@
+---
+title: "旧版 Foundry AIP 适配器"
+description: "仓库中保留的旧版 AIP 模块及其与当前分析流程的关系。"
+---
+
+<Callout title={"目前默认分析路径"}>
+当前首页和服务器使用本体设计、表格数据转换、Codex 文档分析及可选的 Jev 判定，不需要 Foundry 环境变量。旧接口 `/api/aip/status` 和 `/api/graphs/generate` 已不接入当前产品 API。
+</Callout>
+
+## 剩余的模块 [#남아-있는-모듈]
+
+`server/aip.ts` 是旧版 Foundry 兼容 API 适配器。保留的代码将问题与附件正文传给模型，修正候选响应，再依据输入资料重建来源，并通过 `parseGraphDocument` 验证。
+
+`origin: "aip"` 仍是读取旧图时认可的生成途径。通过当前导入流程导入新文件后，保存为 `origin: "imported"`。
+
+## 进入当前文档 [#현재-문서로-이동]
+
+- [资料结构化](/zh/docs/algorithms/extraction)：基于本体的分析算法
+- [HTTP API](/zh/docs/reference/api)：当前上传、任务、案例、图与本体请求
+- [本地开发](/zh/docs/development/local)：安装、登录与运行
+
+之前的实施和测试可以在 [server/aip.ts](https://github.com/d4d-cydf/Cluevia/blob/main/server/aip.ts) ,  [server/aip.test.ts](https://github.com/d4d-cydf/Cluevia/blob/main/server/aip.test.ts) .
